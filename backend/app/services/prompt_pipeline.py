@@ -3,10 +3,38 @@ from app.domain.project import Project, Scene, VideoPrompt
 from app.providers.base import LLMProvider
 from app.providers.mock import GLOBAL_POLICY, MockProvider
 from app.providers.schemas import NARRATION_SCHEMA, STORY_SCHEMA, VISUAL_SCHEMA
-from app.services.narration_validator import draft_narration
+from app.services.narration_validator import NarrationValidationError, draft_narration
 from app.services.prompt_validator import validate_prompt
 from app.services.quality_scorer import QualityScorer
 from time import perf_counter
+from typing import Any
+
+
+class StructuredOutputError(ValueError):
+    pass
+
+
+def _required_strings(result: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any]:
+    if not isinstance(result, dict):
+        raise StructuredOutputError("Provider output must be a JSON object.")
+    for field in fields:
+        if not isinstance(result.get(field), str) or not result[field].strip():
+            raise StructuredOutputError(f"Provider output field '{field}' must be a non-empty string.")
+    return result
+
+
+def _generate_structured(provider: LLMProvider, *, system_prompt: str, user_prompt: str, response_schema: dict[str, Any], required: tuple[str, ...], max_repairs: int = 1) -> tuple[dict[str, Any], int]:
+    repair_attempts = 0
+    current_prompt = user_prompt
+    while True:
+        result = provider.generate_json(system_prompt=system_prompt, user_prompt=current_prompt, response_schema=response_schema)
+        try:
+            return _required_strings(result, required), repair_attempts
+        except StructuredOutputError:
+            if repair_attempts >= max_repairs:
+                raise
+            repair_attempts += 1
+            current_prompt = f"{user_prompt}\n\nREPAIR: Return valid JSON with every required field populated. Do not add commentary."
 
 
 class StoryArchitect:
@@ -18,7 +46,8 @@ class StoryArchitect:
             MockProvider().create_story(project)
             return
 
-        result = self.provider.generate_json(
+        result, _ = _generate_structured(
+            self.provider,
             system_prompt=(
                 "You are a story architect for animated YouTube Shorts. "
                 "Use only the supplied topic and facts. Plan exactly the requested number of scenes."
@@ -29,7 +58,10 @@ class StoryArchitect:
                 f"Scene count: {project.input.duration_seconds // 10}"
             ),
             response_schema=STORY_SCHEMA,
+            required=("hook", "central_claim", "ending"),
         )
+        if not isinstance(result.get("scenes"), list) or not result["scenes"]:
+            raise StructuredOutputError("Story output must contain at least one scene.")
         project.story_hook = result["hook"]
         project.story_central_claim = result["central_claim"]
         project.story_ending = result["ending"]
@@ -54,7 +86,8 @@ class NarrationWriter:
         if self.provider is None or self.provider.name == "mock":
             text = self._scripts.get(scene.purpose, scene.summary)
         else:
-            result = self.provider.generate_json(
+            result, _ = _generate_structured(
+                self.provider,
                 system_prompt=(
                     "Write concise, accurate narration for one animated YouTube Short scene. "
                     "Use no more than 20 words and end with a complete sentence."
@@ -65,9 +98,15 @@ class NarrationWriter:
                     f"Approved topic facts: {project.facts and [fact.text for fact in project.facts if fact.approved_for_narration]}"
                 ),
                 response_schema=NARRATION_SCHEMA,
+                required=("text",),
             )
             text = result["text"]
-        return draft_narration(text)
+        draft = draft_narration(text)
+        narration_lower = draft.text.casefold()
+        for fact in project.facts:
+            if not fact.approved_for_narration and fact.text.strip().casefold() in narration_lower:
+                raise NarrationValidationError("Narration contains an unapproved factual claim.")
+        return draft
 
 
 class VisualDirector:
@@ -82,7 +121,8 @@ class VisualDirector:
             else "Open with a strong visual hook"
         )
         if self.provider is not None and self.provider.name != "mock":
-            result = self.provider.generate_json(
+            result, _ = _generate_structured(
+                self.provider,
                 system_prompt=(
                     "You are a visual director. Create only original, clearly animated, "
                     "non-photorealistic visuals. Preserve the supplied continuity lock."
@@ -94,7 +134,10 @@ class VisualDirector:
                     f"Scene: {scene.summary}\nPrevious scene: {scene.previous_scene_number}"
                 ),
                 response_schema=VISUAL_SCHEMA,
+                required=("story_action", "camera", "composition", "transition"),
             )
+            if not isinstance(result.get("beats"), list) or len(result["beats"]) != 4:
+                raise StructuredOutputError("Visual output must contain exactly four timed beats.")
             return VisualDirection(**result)
         beats = {
             "origin": [

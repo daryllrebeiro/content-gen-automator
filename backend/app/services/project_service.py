@@ -68,8 +68,13 @@ class ProjectService:
 
             return MockProvider()
         from app.providers.gemini import GeminiProvider
+        from app.providers.reliability import RetryingProvider
 
-        return GeminiProvider()
+        return RetryingProvider(
+            GeminiProvider(),
+            max_attempts=int(os.getenv("PROVIDER_MAX_ATTEMPTS", "3")),
+            timeout_seconds=float(os.getenv("PROVIDER_TIMEOUT_SECONDS", "30")),
+        )
 
     def create(self, project_input: ProjectInput) -> Project:
         project = Project(input=project_input, status=ProjectStatus.INPUT_RECEIVED)

@@ -43,6 +43,15 @@ GEMINI_MODEL=gemini-2.5-flash
 
 The default remains `mock`, so local development and tests do not require an API key.
 
+Provider hardening controls are available for deployed Gemini usage:
+
+```text
+PROVIDER_MAX_ATTEMPTS=3
+PROVIDER_TIMEOUT_SECONDS=30
+```
+
+Transient provider failures are retried within these bounds. Permanent failures and unrepaired structured output fail closed before project or prompt persistence.
+
 ## n8n integration foundation
 
 Phase 1 exposes an integration-safe project creation endpoint:
