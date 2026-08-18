@@ -31,7 +31,7 @@ uvicorn app.main:app --reload
 
 Then open `http://127.0.0.1:8000/health`.
 
-The real LLM provider will be added after the state machine and validation contracts are covered by tests.
+The Gemini provider is available behind the provider abstraction. The mock provider remains the default for local development and tests.
 
 To enable the Gemini adapter after installing dependencies, set:
 
@@ -42,3 +42,14 @@ GEMINI_MODEL=gemini-2.5-flash
 ```
 
 The default remains `mock`, so local development and tests do not require an API key.
+
+## End-to-end smoke test
+
+With the backend dependencies installed, run from the repository root:
+
+```powershell
+$env:PYTHONPATH = "backend"
+python scripts/smoke_test.py
+```
+
+The smoke test exercises readiness, project creation, all three prompts, scoped regeneration, and export. To exercise Gemini, set `LLM_PROVIDER=gemini` and `GEMINI_API_KEY` first.
