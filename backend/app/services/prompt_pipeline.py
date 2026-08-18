@@ -6,6 +6,7 @@ from app.providers.schemas import NARRATION_SCHEMA, STORY_SCHEMA, VISUAL_SCHEMA
 from app.services.narration_validator import draft_narration
 from app.services.prompt_validator import validate_prompt
 from app.services.quality_scorer import QualityScorer
+from time import perf_counter
 
 
 class StoryArchitect:
@@ -239,10 +240,19 @@ class PromptGenerationPipeline:
         self.quality_scorer = QualityScorer()
 
     def generate(self, project: Project, scene: Scene) -> VideoPrompt:
+        started = perf_counter()
         context = GenerationContext(project=project, scene=scene)
         narration = self.narration_writer.write(scene, project)
         visual = self.visual_director.direct(context)
         prompt = self.composer.compose(context, narration, visual)
         validate_prompt(prompt, context.contract)
         prompt.quality_scores = self.quality_scorer.score(project, prompt)
+        provider_name = getattr(self.narration_writer.provider, "name", "mock") if self.narration_writer.provider else "mock"
+        model_name = getattr(self.narration_writer.provider, "model", "mock-v1") if self.narration_writer.provider else "mock-v1"
+        prompt.provider_name = provider_name
+        prompt.model_name = model_name
+        prompt.generation_latency_ms = round((perf_counter() - started) * 1000, 2)
+        prompt.repair_attempts = 0
+        prompt.estimated_input_tokens = max(1, len(project.input.topic.split()) + len(scene.summary.split()))
+        prompt.estimated_output_tokens = max(1, len(prompt.text.split()))
         return prompt

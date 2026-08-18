@@ -75,6 +75,12 @@ class VideoPrompt:
     template_version: str = "prompt_composer_v1"
     why_this_prompt: list[str] = field(default_factory=list)
     quality_scores: dict[str, float] = field(default_factory=dict)
+    provider_name: str = "mock"
+    model_name: str = "mock-v1"
+    generation_latency_ms: float = 0.0
+    repair_attempts: int = 0
+    estimated_input_tokens: int = 0
+    estimated_output_tokens: int = 0
 
 
 @dataclass

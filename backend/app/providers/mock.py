@@ -12,6 +12,7 @@ class MockProvider:
     """Deterministic provider used before connecting a real LLM."""
 
     name = "mock"
+    model = "mock-v1"
 
     def create_story(self, project: Project) -> None:
         topic = project.input.topic.strip()

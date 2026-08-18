@@ -43,6 +43,12 @@ def _prompt_response(prompt) -> PromptResponse:
         template_version=prompt.template_version,
         why_this_prompt=prompt.why_this_prompt,
         quality_scores=prompt.quality_scores,
+        provider_name=prompt.provider_name,
+        model_name=prompt.model_name,
+        generation_latency_ms=prompt.generation_latency_ms,
+        repair_attempts=prompt.repair_attempts,
+        estimated_input_tokens=prompt.estimated_input_tokens,
+        estimated_output_tokens=prompt.estimated_output_tokens,
     )
 
 
