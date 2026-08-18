@@ -116,3 +116,13 @@ class ApprovalResponse(BaseModel):
     scene_number: int
     decision: str
     status: str
+
+
+class FactVerificationResponse(BaseModel):
+    job_id: str
+    project_id: UUID
+    status: str
+    claim_count: int
+    verified_count: int
+    failed_count: int
+    error: str = ""

@@ -4,7 +4,8 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from typing import Any
-from app.domain.integration import ApprovalEvent, AuditEvent, IdempotencyRecord
+from app.domain.integration import ApprovalEvent, AuditEvent, EvidenceRecord, FactVerificationJob, IdempotencyRecord
+from app.domain.facts import FactStatus
 
 from app.domain.project import Project, ProjectInput, ProjectStatus, VideoPrompt
 from app.services.prompt_pipeline import PromptGenerationPipeline, StoryArchitect
@@ -25,6 +26,8 @@ class InMemoryProjectRepository:
         self._idempotency: dict[str, IdempotencyRecord] = {}
         self.audit_events: list[AuditEvent] = []
         self.approval_events: list[ApprovalEvent] = []
+        self.fact_jobs: dict[str, FactVerificationJob] = {}
+        self.evidence_records: list[EvidenceRecord] = []
 
     def save(self, project: Project) -> Project:
         self._projects[project.id] = project
@@ -47,6 +50,15 @@ class InMemoryProjectRepository:
 
     def save_approval_event(self, event: ApprovalEvent) -> None:
         self.approval_events.append(event)
+
+    def save_fact_job(self, job: FactVerificationJob) -> None:
+        self.fact_jobs[job.job_id] = job
+
+    def get_fact_job(self, job_id: str) -> FactVerificationJob | None:
+        return self.fact_jobs.get(job_id)
+
+    def save_evidence(self, evidence: EvidenceRecord) -> None:
+        self.evidence_records.append(evidence)
 
 
 class ProjectService:
@@ -155,6 +167,52 @@ class ProjectService:
             self.repository.save_approval_event(event)
         self._audit(f"prompt.{decision}", str(project.id), metadata={"scene_number": scene_number, "actor": actor, "comment": comment})
         return project
+
+    def verify_facts(self, project_id: UUID, job_id: str) -> FactVerificationJob:
+        project = self.repository.get(project_id)
+        job = FactVerificationJob(job_id=job_id, project_id=str(project_id), status="RUNNING", claim_count=len(project.facts))
+        if hasattr(self.repository, "save_fact_job"):
+            self.repository.save_fact_job(job)
+        checker = self.fact_engine.checker
+        if checker is None:
+            job.status = "FAILED_RETRYABLE"
+            job.error = "No evidence provider is configured."
+            job.updated_at = datetime.now(timezone.utc)
+            if hasattr(self.repository, "save_fact_job"):
+                self.repository.save_fact_job(job)
+            self._audit("facts.verification_failed", str(project.id), metadata={"job_id": job_id, "retryable": True})
+            return job
+        for claim in project.facts:
+            try:
+                verified = checker.verify_claim(claim, project.input.source_urls)
+                if verified.status == FactStatus.VERIFIED and not verified.sources:
+                    verified.status = FactStatus.UNCERTAIN
+                    verified.notes = "Provider marked the claim verified without a source reference."
+                claim.status = verified.status
+                claim.confidence = verified.confidence
+                claim.sources = verified.sources
+                claim.notes = verified.notes
+                if claim.status.value == "verified":
+                    job.verified_count += 1
+                elif claim.status.value in {"contradicted", "uncertain"}:
+                    job.failed_count += 1
+                for source in verified.sources:
+                    normalized = source.strip().rstrip("/")
+                    if normalized.startswith(("http://", "https://")) and hasattr(self.repository, "save_evidence"):
+                        rank = 1 if any(domain in normalized.lower() for domain in (".gov", ".edu", ".org")) else 2
+                        evidence_id = hashlib.sha256(f"{project.id}:{claim.id}:{normalized}".encode()).hexdigest()[:24]
+                        self.repository.save_evidence(EvidenceRecord(evidence_id, str(project.id), claim.id, source, normalized, rank))
+            except Exception as exc:
+                claim.status = FactStatus.UNCERTAIN
+                claim.notes = f"Evidence check failed: {exc}"
+                job.failed_count += 1
+        self.repository.save(project)
+        job.status = "COMPLETED"
+        job.updated_at = datetime.now(timezone.utc)
+        if hasattr(self.repository, "save_fact_job"):
+            self.repository.save_fact_job(job)
+        self._audit("facts.verification_completed", str(project.id), metadata={"job_id": job_id, "verified_count": job.verified_count, "failed_count": job.failed_count})
+        return job
 
     def regenerate(self, project_id: UUID, scene_number: int) -> VideoPrompt:
         project = self.repository.get(project_id)

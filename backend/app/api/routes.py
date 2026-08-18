@@ -1,4 +1,4 @@
-from uuid import UUID
+from uuid import UUID, uuid4
 import hashlib
 import json
 
@@ -19,6 +19,7 @@ from app.schemas.projects import (
     IntegrationStatusResponse,
     ApprovalRequest,
     ApprovalResponse,
+    FactVerificationResponse,
 )
 from app.domain.project import ProjectInput
 from app.services.project_service import (
@@ -323,3 +324,47 @@ def integration_approve_prompt(project_id: UUID, scene_number: int, request: App
 )
 def integration_reject_prompt(project_id: UUID, scene_number: int, request: ApprovalRequest, idempotency_key: str = Header(alias="Idempotency-Key"), request_id: str | None = Header(default=None, alias="X-Request-ID")) -> ApprovalResponse:
     return _integration_decide_prompt(project_id, scene_number, "rejected", request, idempotency_key, request_id)
+
+
+def _fact_job_response(job) -> FactVerificationResponse:
+    return FactVerificationResponse(job_id=job.job_id, project_id=UUID(job.project_id), status=job.status, claim_count=job.claim_count, verified_count=job.verified_count, failed_count=job.failed_count, error=job.error)
+
+
+@router.post(
+    "/api/integrations/projects/{project_id}/facts/verify",
+    response_model=FactVerificationResponse,
+    tags=["integrations"],
+    dependencies=[Depends(require_integration_auth)],
+)
+def integration_verify_facts(project_id: UUID, idempotency_key: str = Header(alias="Idempotency-Key"), request_id: str | None = Header(default=None, alias="X-Request-ID")) -> FactVerificationResponse:
+    request_hash = hashlib.sha256(f"integration.facts.verify:{project_id}".encode()).hexdigest()
+    existing = getattr(project_service.repository, "get_idempotency", lambda _: None)(idempotency_key)
+    if existing is not None and (existing.operation != "integration.facts.verify" or existing.request_hash != request_hash):
+        raise HTTPException(status_code=409, detail="Idempotency key was reused with a different request.")
+    job_id = existing.response["job_id"] if existing is not None else str(uuid4())
+    try:
+        job = project_service.repository.get_fact_job(job_id) if existing is not None and hasattr(project_service.repository, "get_fact_job") else None
+        if job is None:
+            job = project_service.verify_facts(project_id, job_id)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+    if existing is None and hasattr(project_service.repository, "save_idempotency"):
+        from app.domain.integration import IdempotencyRecord
+        from datetime import datetime, timezone
+        project_service.repository.save_idempotency(IdempotencyRecord(idempotency_key, "integration.facts.verify", request_hash, {"job_id": job.job_id}, datetime.now(timezone.utc)))
+    if request_id:
+        project_service._audit("integration.facts_verify", str(project_id), request_id, {"job_id": job.job_id})
+    return _fact_job_response(job)
+
+
+@router.get(
+    "/api/integrations/fact-verification-jobs/{job_id}",
+    response_model=FactVerificationResponse,
+    tags=["integrations"],
+    dependencies=[Depends(require_integration_auth)],
+)
+def integration_fact_job_status(job_id: str) -> FactVerificationResponse:
+    job = getattr(project_service.repository, "get_fact_job", lambda _: None)(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Fact verification job not found")
+    return _fact_job_response(job)

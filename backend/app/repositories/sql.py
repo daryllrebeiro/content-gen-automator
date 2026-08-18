@@ -14,7 +14,7 @@ from app.domain.project import (
     VideoPrompt,
 )
 from app.domain.facts import FactClaim, FactStatus
-from app.domain.integration import ApprovalEvent, AuditEvent, IdempotencyRecord
+from app.domain.integration import ApprovalEvent, AuditEvent, EvidenceRecord, FactVerificationJob, IdempotencyRecord
 from app.services.project_service import ProjectNotFoundError
 
 
@@ -71,6 +71,33 @@ class ApprovalEventRecord(Base):
     decision: Mapped[str] = mapped_column(String(20))
     actor: Mapped[str] = mapped_column(String(120))
     comment: Mapped[str] = mapped_column(String(1000), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class FactVerificationJobRecord(Base):
+    __tablename__ = "fact_verification_jobs"
+
+    job_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36))
+    status: Mapped[str] = mapped_column(String(30))
+    claim_count: Mapped[int] = mapped_column()
+    verified_count: Mapped[int] = mapped_column(default=0)
+    failed_count: Mapped[int] = mapped_column(default=0)
+    error: Mapped[str] = mapped_column(String(1000), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class EvidenceRecordRow(Base):
+    __tablename__ = "evidence_records"
+
+    evidence_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36))
+    claim_id: Mapped[str] = mapped_column(String(100))
+    url: Mapped[str] = mapped_column(String(2000))
+    normalized_url: Mapped[str] = mapped_column(String(2000))
+    source_rank: Mapped[int] = mapped_column()
+    notes: Mapped[str] = mapped_column(String(1000), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
@@ -160,6 +187,32 @@ class SqlProjectRepository:
         with Session(self.engine) as session:
             if session.get(ApprovalEventRecord, event.event_id) is None:
                 session.add(ApprovalEventRecord(event_id=event.event_id, project_id=event.project_id, scene_number=event.scene_number, decision=event.decision, actor=event.actor, comment=event.comment))
+                session.commit()
+
+    def save_fact_job(self, job: FactVerificationJob) -> None:
+        with Session(self.engine) as session:
+            record = session.get(FactVerificationJobRecord, job.job_id)
+            if record is None:
+                record = FactVerificationJobRecord(job_id=job.job_id, project_id=job.project_id, status=job.status, claim_count=job.claim_count)
+                session.add(record)
+            record.status = job.status
+            record.verified_count = job.verified_count
+            record.failed_count = job.failed_count
+            record.error = job.error
+            record.updated_at = job.updated_at
+            session.commit()
+
+    def get_fact_job(self, job_id: str) -> FactVerificationJob | None:
+        with Session(self.engine) as session:
+            record = session.get(FactVerificationJobRecord, job_id)
+            if record is None:
+                return None
+            return FactVerificationJob(record.job_id, record.project_id, record.status, record.claim_count, record.verified_count, record.failed_count, record.error, record.created_at, record.updated_at)
+
+    def save_evidence(self, evidence: EvidenceRecord) -> None:
+        with Session(self.engine) as session:
+            if session.get(EvidenceRecordRow, evidence.evidence_id) is None:
+                session.add(EvidenceRecordRow(evidence_id=evidence.evidence_id, project_id=evidence.project_id, claim_id=evidence.claim_id, url=evidence.url, normalized_url=evidence.normalized_url, source_rank=evidence.source_rank, notes=evidence.notes))
                 session.commit()
 
     @staticmethod

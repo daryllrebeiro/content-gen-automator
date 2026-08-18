@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
@@ -35,3 +35,28 @@ class ApprovalEvent:
     actor: str
     comment: str
     created_at: datetime
+
+
+@dataclass
+class FactVerificationJob:
+    job_id: str
+    project_id: str
+    status: str
+    claim_count: int
+    verified_count: int = 0
+    failed_count: int = 0
+    error: str = ""
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+@dataclass
+class EvidenceRecord:
+    evidence_id: str
+    project_id: str
+    claim_id: str
+    url: str
+    normalized_url: str
+    source_rank: int
+    notes: str = ""
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
