@@ -8,6 +8,7 @@ from app.services.prompt_validator import validate_prompt
 from app.domain.facts import FactStatus
 from app.services.fact_engine import FactEngine
 from app.services.prompt_pipeline import PromptGenerationPipeline, StoryArchitect
+from app.services.export_service import ExportService
 
 
 class FakeStructuredProvider:
@@ -199,3 +200,16 @@ def test_regeneration_requires_an_existing_prompt():
         pass
     else:
         raise AssertionError("Expected regeneration before generation to fail")
+
+
+def test_export_contains_markdown_and_publishing_package():
+    service = ProjectService(InMemoryProjectRepository())
+    project = service.create(ProjectInput(topic="Export test", duration_seconds=10))
+    service.generate_next(project.id)
+    export = ExportService()
+    markdown = export.render_markdown(project)
+    data = export.export_json(project)
+    assert "## Publishing Package" in markdown
+    assert "## Prompts" in markdown
+    assert data["publishing"]["title"].startswith("Export test")
+    assert data["prompts"][0]["version_number"] == 1

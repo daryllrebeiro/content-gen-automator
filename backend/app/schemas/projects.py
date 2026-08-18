@@ -61,3 +61,17 @@ class ProjectResponse(BaseModel):
     scenes: list[SceneResponse]
     continuity: dict
     prompts: list[PromptResponse]
+
+
+class PublishingResponse(BaseModel):
+    title: str
+    description: str
+    hashtags: list[str]
+    pinned_comment: str
+
+
+class ExportResponse(BaseModel):
+    project_id: UUID
+    markdown: str
+    publishing: PublishingResponse
+    data: dict

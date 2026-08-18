@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException
 from app.schemas.health import HealthResponse
 from app.schemas.projects import (
     FactResponse,
+    ExportResponse,
     ProjectCreateRequest,
     ProjectResponse,
     PromptResponse,
@@ -16,10 +17,12 @@ from app.services.project_service import (
     ProjectService,
     ProjectStateError,
 )
+from app.services.export_service import ExportService
 
 
 router = APIRouter()
 project_service = ProjectService()
+export_service = ExportService()
 
 
 @router.get("/health", response_model=HealthResponse, tags=["system"])
@@ -129,3 +132,22 @@ def regenerate_prompt(project_id: UUID, scene_number: int) -> PromptResponse:
         raise HTTPException(status_code=404, detail="Project not found") from exc
     except ProjectStateError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.get(
+    "/api/projects/{project_id}/export",
+    response_model=ExportResponse,
+    tags=["export"],
+)
+def export_project(project_id: UUID) -> ExportResponse:
+    try:
+        project = project_service.repository.get(project_id)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+    publishing = export_service.publishing_package(project)
+    return ExportResponse(
+        project_id=project.id,
+        markdown=export_service.render_markdown(project),
+        publishing=PublishingResponse(**publishing.__dict__),
+        data=export_service.export_json(project),
+    )

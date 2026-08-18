@@ -45,6 +45,13 @@ export type Project = {
   prompts: Prompt[];
 };
 
+export type ExportBundle = {
+  project_id: string;
+  markdown: string;
+  publishing: { title: string; description: string; hashtags: string[]; pinned_comment: string };
+  data: Record<string, unknown>;
+};
+
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -69,4 +76,8 @@ export function generatePrompt(projectId: string) {
 
 export function regeneratePrompt(projectId: string, sceneNumber: number) {
   return request<Prompt>(`/api/projects/${projectId}/prompts/${sceneNumber}/regenerate`, { method: "POST" });
+}
+
+export function exportProject(projectId: string) {
+  return request<ExportBundle>(`/api/projects/${projectId}/export`);
 }

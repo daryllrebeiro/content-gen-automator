@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, ReactNode, useState } from "react";
-import { createProject, Duration, generatePrompt, regeneratePrompt, Project, Prompt } from "../lib/api";
+import { createProject, Duration, exportProject, generatePrompt, regeneratePrompt, Project, Prompt } from "../lib/api";
 
 export default function HomePage() {
   const [topic, setTopic] = useState("");
@@ -71,6 +71,26 @@ export default function HomePage() {
     }
   }
 
+  async function downloadExport() {
+    if (!project) return;
+    setBusy(true);
+    setError("");
+    try {
+      const bundle = await exportProject(project.id);
+      const blob = new Blob([bundle.markdown], { type: "text/markdown;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "animated-shorts-prompt-package.md";
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Something went wrong.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (project) {
     const complete = prompts.length === project.total_scenes;
     return (
@@ -90,7 +110,7 @@ export default function HomePage() {
           {prompts.map((prompt) => <article className="prompt-card" key={prompt.scene_number}><div className="prompt-heading"><div><p className="eyebrow">SCENE {prompt.scene_number}/{prompt.total_scenes} · VERSION {prompt.version_number}</p><h2>{prompt.narration}</h2></div><span className="timing">{prompt.narration_word_count} words · {prompt.estimated_narration_seconds}s</span></div><pre>{prompt.text}</pre><div className="prompt-actions"><button className="copy-button" onClick={() => navigator.clipboard.writeText(prompt.text)}>Copy prompt</button><button className="copy-button" disabled={busy} onClick={() => regenerate(prompt.scene_number)}>Regenerate scene</button></div></article>)}
         </section>
         {error && <p className="error">{error}</p>}
-        <div className="action-row">{complete ? <p className="complete">Project complete · {prompts.length} prompts ready</p> : <button className="primary" disabled={busy} onClick={nextPrompt}>{busy ? "Generating…" : "Generate next prompt →"}</button>}<button className="secondary" onClick={() => { setProject(null); setPrompts([]); }}>New Short</button></div>
+        <div className="action-row">{complete ? <><p className="complete">Project complete · {prompts.length} prompts ready</p><button className="primary" disabled={busy} onClick={downloadExport}>{busy ? "Preparing…" : "Export package ↓"}</button></> : <button className="primary" disabled={busy} onClick={nextPrompt}>{busy ? "Generating…" : "Generate next prompt →"}</button>}<button className="secondary" onClick={() => { setProject(null); setPrompts([]); }}>New Short</button></div>
       </main>
     );
   }
