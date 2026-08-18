@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, ReactNode, useState } from "react";
-import { createProject, Duration, generatePrompt, Project, Prompt } from "../lib/api";
+import { createProject, Duration, generatePrompt, regeneratePrompt, Project, Prompt } from "../lib/api";
 
 export default function HomePage() {
   const [topic, setTopic] = useState("");
@@ -57,6 +57,20 @@ export default function HomePage() {
     }
   }
 
+  async function regenerate(sceneNumber: number) {
+    if (!project) return;
+    setBusy(true);
+    setError("");
+    try {
+      const prompt = await regeneratePrompt(project.id, sceneNumber);
+      setPrompts((current) => current.map((item) => item.scene_number === sceneNumber ? prompt : item));
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Something went wrong.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (project) {
     const complete = prompts.length === project.total_scenes;
     return (
@@ -73,7 +87,7 @@ export default function HomePage() {
         </section>
         {project.facts.length > 0 && <section className="panel fact-panel"><p className="eyebrow">FACT STATUS</p>{project.facts.map((fact) => <div className="fact-row" key={fact.id}><span>{fact.text}</span><span className={fact.approved_for_narration ? "fact-approved" : "fact-pending"}>{fact.status.replace("_", " ")}</span></div>)}</section>}
         <section className="prompt-list">
-          {prompts.map((prompt) => <article className="prompt-card" key={prompt.scene_number}><div className="prompt-heading"><div><p className="eyebrow">SCENE {prompt.scene_number}/{prompt.total_scenes}</p><h2>{prompt.narration}</h2></div><span className="timing">{prompt.narration_word_count} words · {prompt.estimated_narration_seconds}s</span></div><pre>{prompt.text}</pre><button className="copy-button" onClick={() => navigator.clipboard.writeText(prompt.text)}>Copy prompt</button></article>)}
+          {prompts.map((prompt) => <article className="prompt-card" key={prompt.scene_number}><div className="prompt-heading"><div><p className="eyebrow">SCENE {prompt.scene_number}/{prompt.total_scenes} · VERSION {prompt.version_number}</p><h2>{prompt.narration}</h2></div><span className="timing">{prompt.narration_word_count} words · {prompt.estimated_narration_seconds}s</span></div><pre>{prompt.text}</pre><div className="prompt-actions"><button className="copy-button" onClick={() => navigator.clipboard.writeText(prompt.text)}>Copy prompt</button><button className="copy-button" disabled={busy} onClick={() => regenerate(prompt.scene_number)}>Regenerate scene</button></div></article>)}
         </section>
         {error && <p className="error">{error}</p>}
         <div className="action-row">{complete ? <p className="complete">Project complete · {prompts.length} prompts ready</p> : <button className="primary" disabled={busy} onClick={nextPrompt}>{busy ? "Generating…" : "Generate next prompt →"}</button>}<button className="secondary" onClick={() => { setProject(null); setPrompts([]); }}>New Short</button></div>

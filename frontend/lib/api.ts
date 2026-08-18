@@ -18,6 +18,8 @@ export type Prompt = {
   narration: string;
   narration_word_count: number;
   estimated_narration_seconds: number;
+  version_number: number;
+  template_version: string;
 };
 
 export type Project = {
@@ -63,4 +65,8 @@ export function createProject(input: ProjectInput) {
 
 export function generatePrompt(projectId: string) {
   return request<Prompt>(`/api/projects/${projectId}/prompts/next`, { method: "POST" });
+}
+
+export function regeneratePrompt(projectId: string, sceneNumber: number) {
+  return request<Prompt>(`/api/projects/${projectId}/prompts/${sceneNumber}/regenerate`, { method: "POST" });
 }

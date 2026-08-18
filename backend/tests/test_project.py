@@ -175,3 +175,27 @@ def test_fact_engine_fails_closed_when_evidence_provider_is_unavailable():
     claims = FactEngine(checker=FailingFactChecker()).ingest(domain_project)
     assert claims[0].status == FactStatus.UNCERTAIN
     assert FactEngine().approved_facts(domain_project) == []
+
+
+def test_regeneration_preserves_scene_and_increments_version():
+    service = ProjectService(InMemoryProjectRepository())
+    project = service.create(ProjectInput(topic="Regeneration test", duration_seconds=20))
+    original = service.generate_next(project.id)
+    regenerated = service.regenerate(project.id, 1)
+
+    assert regenerated.scene_number == original.scene_number == 1
+    assert regenerated.version_number == 2
+    assert project.prompts[1] is regenerated
+    assert project.prompt_history[1][0].version_number == 1
+    assert project.continuity.animation_style == "stylized cinematic 3D animation"
+
+
+def test_regeneration_requires_an_existing_prompt():
+    service = ProjectService(InMemoryProjectRepository())
+    project = service.create(ProjectInput(topic="Regeneration guard", duration_seconds=10))
+    try:
+        service.regenerate(project.id, 1)
+    except ProjectStateError:
+        pass
+    else:
+        raise AssertionError("Expected regeneration before generation to fail")

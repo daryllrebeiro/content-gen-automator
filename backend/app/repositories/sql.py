@@ -35,6 +35,7 @@ class ProjectRecord(Base):
     facts_data: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     scenes_data: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     prompts_data: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    prompt_history_data: Mapped[dict[str, list[dict[str, Any]]]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -76,9 +77,16 @@ class SqlProjectRepository:
             ]
             record.scenes_data = [scene.__dict__ for scene in project.scenes]
             record.prompts_data = [
-                {"scene_number": prompt.scene_number, "total_scenes": prompt.total_scenes, "text": prompt.text, "narration": prompt.narration, "narration_word_count": prompt.narration_word_count, "estimated_narration_seconds": prompt.estimated_narration_seconds, "beats": prompt.beats, "captions": prompt.captions, "continuity_lock": prompt.continuity_lock, "audio_plan": prompt.audio_plan, "final_requirements": prompt.final_requirements}
+                {"scene_number": prompt.scene_number, "total_scenes": prompt.total_scenes, "text": prompt.text, "narration": prompt.narration, "narration_word_count": prompt.narration_word_count, "estimated_narration_seconds": prompt.estimated_narration_seconds, "beats": prompt.beats, "captions": prompt.captions, "continuity_lock": prompt.continuity_lock, "audio_plan": prompt.audio_plan, "final_requirements": prompt.final_requirements, "version_number": prompt.version_number, "template_version": prompt.template_version}
                 for prompt in project.prompts.values()
             ]
+            record.prompt_history_data = {
+                str(scene_number): [
+                    {"scene_number": prompt.scene_number, "total_scenes": prompt.total_scenes, "text": prompt.text, "narration": prompt.narration, "narration_word_count": prompt.narration_word_count, "estimated_narration_seconds": prompt.estimated_narration_seconds, "beats": prompt.beats, "captions": prompt.captions, "continuity_lock": prompt.continuity_lock, "audio_plan": prompt.audio_plan, "final_requirements": prompt.final_requirements, "version_number": prompt.version_number, "template_version": prompt.template_version}
+                    for prompt in prompts
+                ]
+                for scene_number, prompts in project.prompt_history.items()
+            }
             session.commit()
         return project
 
@@ -111,5 +119,12 @@ class SqlProjectRepository:
         project.prompts = {
             item["scene_number"]: VideoPrompt(project_id=project.id, **item)
             for item in (record.prompts_data or [])
+        }
+        project.prompt_history = {
+            int(scene_number): [
+                VideoPrompt(project_id=project.id, **item)
+                for item in prompts
+            ]
+            for scene_number, prompts in (record.prompt_history_data or {}).items()
         }
         return project

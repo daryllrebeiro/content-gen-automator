@@ -35,6 +35,8 @@ def _prompt_response(prompt) -> PromptResponse:
         narration=prompt.narration,
         narration_word_count=prompt.narration_word_count,
         estimated_narration_seconds=prompt.estimated_narration_seconds,
+        version_number=prompt.version_number,
+        template_version=prompt.template_version,
     )
 
 
@@ -113,3 +115,17 @@ def generate_first_prompt(project_id: UUID) -> PromptResponse:
 )
 def generate_next_prompt(project_id: UUID) -> PromptResponse:
     return generate_first_prompt(project_id)
+
+
+@router.post(
+    "/api/projects/{project_id}/prompts/{scene_number}/regenerate",
+    response_model=PromptResponse,
+    tags=["prompts"],
+)
+def regenerate_prompt(project_id: UUID, scene_number: int) -> PromptResponse:
+    try:
+        return _prompt_response(project_service.regenerate(project_id, scene_number))
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+    except ProjectStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc

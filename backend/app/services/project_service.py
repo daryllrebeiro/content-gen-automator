@@ -83,3 +83,20 @@ class ProjectService:
         )
         self.repository.save(project)
         return prompt
+
+    def regenerate(self, project_id: UUID, scene_number: int) -> VideoPrompt:
+        project = self.repository.get(project_id)
+        if scene_number < 1 or scene_number > len(project.scenes):
+            raise ProjectStateError("Scene number is outside this project.")
+        if scene_number not in project.prompts:
+            raise ProjectStateError("Generate the scene once before regenerating it.")
+
+        current = project.prompts[scene_number]
+        history = project.prompt_history.setdefault(scene_number, [])
+        history.append(current)
+        regenerated = self.prompt_pipeline.generate(project, project.scenes[scene_number - 1])
+        regenerated.version_number = current.version_number + 1
+        regenerated.template_version = current.template_version
+        project.prompts[scene_number] = regenerated
+        self.repository.save(project)
+        return regenerated

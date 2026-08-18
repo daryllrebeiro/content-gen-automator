@@ -71,6 +71,8 @@ class VideoPrompt:
     continuity_lock: list[str] = field(default_factory=list)
     audio_plan: list[str] = field(default_factory=list)
     final_requirements: list[str] = field(default_factory=list)
+    version_number: int = 1
+    template_version: str = "prompt_composer_v1"
 
 
 @dataclass
@@ -86,3 +88,4 @@ class Project:
     continuity: ContinuityProfile = field(default_factory=ContinuityProfile)
     facts: list[FactClaim] = field(default_factory=list)
     prompts: dict[int, VideoPrompt] = field(default_factory=dict)
+    prompt_history: dict[int, list[VideoPrompt]] = field(default_factory=dict)

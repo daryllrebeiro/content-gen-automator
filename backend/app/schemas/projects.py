@@ -33,6 +33,8 @@ class PromptResponse(BaseModel):
     narration: str
     narration_word_count: int
     estimated_narration_seconds: float
+    version_number: int = 1
+    template_version: str = "prompt_composer_v1"
 
 
 class FactResponse(BaseModel):
