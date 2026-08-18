@@ -31,8 +31,9 @@ class InMemoryProjectRepository:
 class ProjectService:
     def __init__(self, repository: InMemoryProjectRepository | None = None) -> None:
         self.repository = repository or self._default_repository()
-        self.story_architect = StoryArchitect()
-        self.prompt_pipeline = PromptGenerationPipeline()
+        provider = self._default_provider()
+        self.story_architect = StoryArchitect(provider)
+        self.prompt_pipeline = PromptGenerationPipeline(provider)
 
     @staticmethod
     def _default_repository():
@@ -41,6 +42,16 @@ class ProjectService:
         from app.repositories.sql import SqlProjectRepository
 
         return SqlProjectRepository(os.environ["DATABASE_URL"])
+
+    @staticmethod
+    def _default_provider():
+        if os.getenv("LLM_PROVIDER", "mock").lower() != "gemini":
+            from app.providers.mock import MockProvider
+
+            return MockProvider()
+        from app.providers.gemini import GeminiProvider
+
+        return GeminiProvider()
 
     def create(self, project_input: ProjectInput) -> Project:
         project = Project(input=project_input, status=ProjectStatus.INPUT_RECEIVED)

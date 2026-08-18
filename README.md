@@ -33,3 +33,12 @@ Then open `http://127.0.0.1:8000/health`.
 
 The real LLM provider will be added after the state machine and validation contracts are covered by tests.
 
+To enable the Gemini adapter after installing dependencies, set:
+
+```text
+LLM_PROVIDER=gemini
+GEMINI_API_KEY=your-key
+GEMINI_MODEL=gemini-2.5-flash
+```
+
+The default remains `mock`, so local development and tests do not require an API key.

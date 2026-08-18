@@ -11,6 +11,8 @@ GLOBAL_POLICY = (
 class MockProvider:
     """Deterministic provider used before connecting a real LLM."""
 
+    name = "mock"
+
     def create_story(self, project: Project) -> None:
         topic = project.input.topic.strip()
         project.story_hook = f"What began as a small idea became a much bigger story: {topic}."

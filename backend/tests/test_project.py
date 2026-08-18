@@ -5,6 +5,32 @@ from app.domain.project import ProjectInput, ProjectStatus, scene_count
 from app.services.project_service import InMemoryProjectRepository, ProjectService, ProjectStateError
 from app.services.narration_validator import NarrationValidationError, draft_narration
 from app.services.prompt_validator import validate_prompt
+from app.services.prompt_pipeline import PromptGenerationPipeline, StoryArchitect
+
+
+class FakeStructuredProvider:
+    name = "fake"
+
+    def generate_json(self, *, system_prompt, user_prompt, response_schema):
+        required = set(response_schema.get("required", []))
+        if "hook" in required:
+            return {
+                "hook": "A small beginning.",
+                "central_claim": "Consistency enabled growth.",
+                "ending": "The idea reached farther.",
+                "scenes": [
+                    {"purpose": "origin", "summary": "Show the beginning."},
+                    {"purpose": "breakthrough", "summary": "Show the turning point."},
+                ],
+            }
+        if "text" in required:
+            return {"text": "One small idea can travel farther than anyone expects."}
+        return {
+            "story_action": "Animate the idea moving through an expanding world.",
+            "camera": "Slow vertical push-in",
+            "composition": "Keep the subject centered.",
+            "transition": "Flow into the next scene.",
+        }
 
 
 @pytest.mark.parametrize(
@@ -75,3 +101,16 @@ def test_in_memory_repository_round_trip_preserves_project_state():
     assert restored.input.topic == "Persistence test"
     assert restored.current_scene_number == 1
     assert restored.prompts[1].scene_number == 1
+
+
+def test_real_provider_pipeline_contract_with_structured_fake():
+    provider = FakeStructuredProvider()
+    project = ProjectInput(topic="Provider boundary", duration_seconds=20)
+    from app.domain.project import Project
+
+    domain_project = Project(input=project)
+    StoryArchitect(provider).create(domain_project)
+    prompt = PromptGenerationPipeline(provider).generate(domain_project, domain_project.scenes[0])
+    assert prompt.narration == "One small idea can travel farther than anyone expects."
+    assert "VISUAL DIRECTION" not in prompt.text
+    assert "CAMERA AND COMPOSITION" in prompt.text
