@@ -15,6 +15,8 @@ from app.schemas.projects import (
     PublishingResponse,
     SceneResponse,
     IntegrationProjectResponse,
+    IntegrationPromptResponse,
+    IntegrationStatusResponse,
 )
 from app.domain.project import ProjectInput
 from app.services.project_service import (
@@ -211,3 +213,70 @@ def integration_create_project(
     if request_id:
         project_service._audit("integration.project_create", str(project.id), request_id, {"idempotency_key": idempotency_key, "replayed": existed})
     return IntegrationProjectResponse(project_id=project.id, created=not existed, status=project.status.value, total_scenes=len(project.scenes))
+
+
+@router.get(
+    "/api/integrations/projects/{project_id}/status",
+    response_model=IntegrationStatusResponse,
+    tags=["integrations"],
+    dependencies=[Depends(require_integration_auth)],
+)
+def integration_project_status(project_id: UUID, request_id: str | None = Header(default=None, alias="X-Request-ID")) -> IntegrationStatusResponse:
+    try:
+        project = project_service.repository.get(project_id)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+    if request_id:
+        project_service._audit("integration.project_status", str(project.id), request_id)
+    next_scene = project.current_scene_number + 1 if project.current_scene_number < len(project.scenes) else None
+    return IntegrationStatusResponse(
+        project_id=project.id,
+        status=project.status.value,
+        current_scene_number=project.current_scene_number,
+        total_scenes=len(project.scenes),
+        next_scene_number=next_scene,
+    )
+
+
+@router.post(
+    "/api/integrations/projects/{project_id}/prompts/next",
+    response_model=IntegrationPromptResponse,
+    tags=["integrations"],
+    dependencies=[Depends(require_integration_auth)],
+)
+def integration_generate_next_prompt(
+    project_id: UUID,
+    idempotency_key: str = Header(alias="Idempotency-Key"),
+    request_id: str | None = Header(default=None, alias="X-Request-ID"),
+) -> IntegrationPromptResponse:
+    request_hash = hashlib.sha256(f"integration.prompts.next:{project_id}".encode()).hexdigest()
+    existing = getattr(project_service.repository, "get_idempotency", lambda _: None)(idempotency_key)
+    if existing is not None and (existing.operation != "integration.prompts.next" or existing.request_hash != request_hash):
+        raise HTTPException(status_code=409, detail="Idempotency key was reused with a different request.")
+    try:
+        prompt = project_service.generate_next(project_id)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+    except ProjectStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if existing is None and hasattr(project_service.repository, "save_idempotency"):
+        from app.domain.integration import IdempotencyRecord
+        from datetime import datetime, timezone
+        project_service.repository.save_idempotency(IdempotencyRecord(idempotency_key, "integration.prompts.next", request_hash, {"project_id": str(project_id), "scene_number": prompt.scene_number}, datetime.now(timezone.utc)))
+    if request_id:
+        project_service._audit("integration.prompt_next", str(project_id), request_id, {"scene_number": prompt.scene_number, "idempotency_key": idempotency_key})
+    project = project_service.repository.get(project_id)
+    return IntegrationPromptResponse(project_id=project.id, prompt=_prompt_response(prompt), status=project.status.value)
+
+
+@router.get(
+    "/api/integrations/projects/{project_id}/export",
+    response_model=ExportResponse,
+    tags=["integrations"],
+    dependencies=[Depends(require_integration_auth)],
+)
+def integration_export_project(project_id: UUID, request_id: str | None = Header(default=None, alias="X-Request-ID")) -> ExportResponse:
+    result = export_project(project_id)
+    if request_id:
+        project_service._audit("integration.project_export", str(project_id), request_id)
+    return result

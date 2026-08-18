@@ -1,0 +1,10 @@
+{
+  "name": "shorts_create_project_dev",
+  "active": false,
+  "nodes": [
+    {"name": "Webhook", "type": "n8n-nodes-base.webhook", "parameters": {"path": "shorts/create", "httpMethod": "POST"}},
+    {"name": "Create Project", "type": "n8n-nodes-base.httpRequest", "parameters": {"method": "POST", "url": "={{$env.AGENT_API_URL}}/api/integrations/projects", "sendHeaders": true, "headerParameters": {"parameters": [{"name": "Authorization", "value": "=Bearer {{$credentials.agentServiceToken}}"}, {"name": "Idempotency-Key", "value": "={{$json.request_id}}"}, {"name": "X-Request-ID", "value": "={{$execution.id}}"}]}, "sendBody": true, "jsonBody": "={{$json}}"}},
+    {"name": "Generate Prompt 1", "type": "n8n-nodes-base.httpRequest", "parameters": {"method": "POST", "url": "={{$env.AGENT_API_URL}}/api/integrations/projects/{{$json.project_id}}/prompts/next", "sendHeaders": true, "headerParameters": {"parameters": [{"name": "Authorization", "value": "=Bearer {{$credentials.agentServiceToken}}"}, {"name": "Idempotency-Key", "value": "={{$execution.id}}-prompt-1"}, {"name": "X-Request-ID", "value": "={{$execution.id}}"}]}}}
+  ],
+  "connections": {"Webhook": {"main": [[{"node": "Create Project", "type": "main", "index": 0}]]}, "Create Project": {"main": [[{"node": "Generate Prompt 1", "type": "main", "index": 0}]]}}
+}

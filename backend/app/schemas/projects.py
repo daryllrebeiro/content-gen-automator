@@ -90,3 +90,17 @@ class IntegrationProjectResponse(BaseModel):
     created: bool
     status: str
     total_scenes: int
+
+
+class IntegrationStatusResponse(BaseModel):
+    project_id: UUID
+    status: str
+    current_scene_number: int
+    total_scenes: int
+    next_scene_number: int | None
+
+
+class IntegrationPromptResponse(BaseModel):
+    project_id: UUID
+    prompt: PromptResponse
+    status: str
