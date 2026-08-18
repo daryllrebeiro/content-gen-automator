@@ -471,54 +471,349 @@ n8n is well-suited to route these approval steps to email, Slack, Teams, or anot
 
 ---
 
-## 11. Phased implementation roadmap
+## 11. Detailed phased implementation roadmap
 
-### Phase 1 — Current MVP hardening
+The phases below are ordered by dependency. Do not begin long-running video automation before the application has durable state, idempotency, validation, and an approval boundary.
 
-- Keep mock-provider flow stable.
-- Keep 16+ regression tests passing.
-- Add API authentication middleware.
-- Add idempotency keys.
-- Add structured audit events.
-- Add migration runner instead of `create_all` in production.
+### Phase 0 — Product contract and operational baseline
 
-### Phase 2 — First n8n integration
+**Objective:** Freeze the MVP behavior so later automation cannot silently change the product contract.
 
-- Create an authenticated project webhook.
-- Add a Create Project workflow.
-- Add a Prompt Ready notification workflow.
-- Add a manual approval step.
-- Add a Generate Next workflow.
-- Add an error workflow that records execution IDs.
+**Build:**
 
-### Phase 3 — Evidence and publishing automation
+- Document the accepted duration enum: `10 | 20 | 30`.
+- Document the exact structured prompt headings.
+- Document the Production Contract and safety policy versions.
+- Define project and prompt state transitions.
+- Define which fields are user-editable and which are locked.
+- Define data retention rules for prompts, facts, source URLs, and exports.
+- Define the first quality-score thresholds.
 
-- Add evidence events from n8n.
-- Add source review and approval.
-- Add export delivery to object storage.
-- Add notifications and publishing-package delivery.
+**Deliverables:**
 
-### Phase 4 — Media generation
+- Product contract document
+- Versioned prompt policy
+- State-transition table
+- API error catalog
+- Initial data-retention decision
 
-- Add provider job records.
-- Submit each ten-second prompt as a separate job.
-- Poll or receive callbacks.
-- Store clip references.
-- Attach one canonical narration track.
-- Add human video review.
+**Acceptance criteria:**
 
-### Phase 5 — Production scale
+- A new developer can explain when Prompt 2 may be generated.
+- Every generated prompt has a policy and template version.
+- Unsupported durations and invalid states are rejected consistently.
 
-- Add a real background job queue.
-- Scale n8n with queue mode if required.
-- Add object storage for media.
-- Add OpenTelemetry or equivalent tracing.
-- Add staged deployments and rollback.
-- Add cost budgets and per-user quotas.
+**Main risk:** Scope drift.
+**Control:** Any feature that changes the contract becomes a separately versioned decision.
 
 ---
 
-## 12. Definition of robust
+### Phase 1 — Application reliability foundation
+
+**Objective:** Make the agent API safe to call repeatedly and safe to restart.
+
+**Build:**
+
+- Replace production `create_all` with a migration runner.
+- Add `idempotency_keys` and `integration_events` tables.
+- Add unique constraints for project IDs, scene numbers, prompt versions, and event IDs.
+- Add transactional state transitions.
+- Add optimistic locking or row locking around “Generate Next.”
+- Add request size limits and rate limits.
+- Add authenticated service-to-service requests.
+- Add structured audit events for create, generate, regenerate, approve, export, and failure.
+- Add database backup and restore instructions.
+
+**Deliverables:**
+
+- Migration command
+- Auth middleware
+- Idempotency middleware
+- Audit-event repository
+- Backup/restore runbook
+
+**Acceptance criteria:**
+
+- Replaying the same request returns the original response.
+- Replaying the same key with a different payload returns `409`.
+- Two concurrent requests cannot generate the same scene twice.
+- A server restart does not lose project progress.
+- A failed transaction leaves no partial prompt version.
+
+**Main risk:** Duplicate external requests.
+**Control:** Require `Idempotency-Key` for every n8n mutation endpoint.
+
+---
+
+### Phase 2 — Provider and validation hardening
+
+**Objective:** Make real-provider output as reliable as the deterministic mock flow.
+
+**Build:**
+
+- Add provider timeouts and bounded retries.
+- Add provider-specific error classification.
+- Add structured-output repair calls with a maximum repair count.
+- Add schema validation before every database write.
+- Add safety validation after repair, not only before it.
+- Add narration timing checks per language.
+- Add fact-reference checks so unapproved claims cannot enter narration.
+- Add provider fallback behavior that fails closed.
+- Store raw provider metadata separately from user-facing prompt text.
+- Add prompt-template version pinning per project.
+
+**Deliverables:**
+
+- Provider error taxonomy
+- Repair policy
+- Validation report object
+- Provider contract tests
+- Mock, fake, and live-provider test modes
+
+**Acceptance criteria:**
+
+- Malformed JSON never reaches the user as a valid prompt.
+- Provider timeouts become retryable failures.
+- Safety failures become permanent failures unless the input changes.
+- A prompt can be reproduced from stored input, template, policy, and model metadata.
+
+**Main risk:** A model produces plausible but invalid content.
+**Control:** Treat model output as an untrusted candidate until all validators pass.
+
+---
+
+### Phase 3 — n8n development integration
+
+**Objective:** Connect n8n without moving core business logic into workflows.
+
+**Build:**
+
+- Create a private n8n development instance.
+- Store the agent service token in n8n credentials.
+- Add an authenticated `POST /api/integrations/projects` endpoint.
+- Add request signing or a short-lived service token.
+- Add `X-Request-ID` and `Idempotency-Key` propagation.
+- Create a workflow named `shorts_create_project_dev`.
+- Add a workflow named `shorts_notify_prompt_ready_dev`.
+- Add a workflow named `shorts_generate_next_dev`.
+- Add a workflow named `shorts_error_handler_dev`.
+- Store `n8n_execution_id` in the application event record.
+
+**Recommended first workflow:**
+
+```text
+Webhook
+  ↓
+Validate required fields
+  ↓
+HTTP Request: create project
+  ↓
+HTTP Request: generate Prompt 1
+  ↓
+IF: response status is ready
+  ├── yes → send prompt to approval channel
+  └── no  → call error workflow
+```
+
+**Acceptance criteria:**
+
+- A webhook creates exactly one project for a repeated request.
+- n8n never sends the database password or Gemini key.
+- A failed HTTP call is visible in both n8n and the application audit log.
+- The workflow passes only IDs and bounded payloads between steps.
+
+**Main risk:** Hidden business logic in n8n Code nodes.
+**Control:** Keep all contract and state decisions in the application API.
+
+---
+
+### Phase 4 — Human approval and controlled scene progression
+
+**Objective:** Add a human checkpoint before the system generates or publishes downstream assets.
+
+**Build:**
+
+- Add `STORY_APPROVAL_PENDING`, `PROMPT_APPROVAL_PENDING`, and `APPROVED` states.
+- Add approval and rejection API endpoints.
+- Add `approval_events` table.
+- Add approval comments and actor identity.
+- Build n8n approval workflows for email, Slack, or Teams.
+- Add regeneration from an approval rejection.
+- Preserve rejected versions for audit but never mark them current.
+
+**Acceptance criteria:**
+
+- Prompt generation cannot bypass a required approval state.
+- Rejection creates an auditable event.
+- Approval is tied to a project version, not only a project ID.
+- Regeneration preserves approved facts and continuity locks.
+
+**Main risk:** Approving one version while another is current.
+**Control:** Approvals must reference `project_version` and `prompt_version`.
+
+---
+
+### Phase 5 — Evidence and research automation
+
+**Objective:** Make factual narration reliable for topics requiring research.
+
+**Build:**
+
+- Add `fact_verification_jobs` and evidence records.
+- Add a source allowlist/denylist policy.
+- Add source quality ranking.
+- Add citation extraction and normalization.
+- Add a human review path for uncertain or contradictory claims.
+- Add n8n workflow for source collection and review.
+- Add webhook callbacks for verification completion.
+- Keep claim status changes transactional.
+
+**Acceptance criteria:**
+
+- No `unverified` claim is rendered as a direct factual statement.
+- Every verified claim has at least one stored source reference.
+- Contradicted claims are visibly blocked.
+- Research failure leaves the project usable but marks it as awaiting evidence.
+
+**Main risk:** Search results are incomplete or conflicting.
+**Control:** Use confidence thresholds and require human review below threshold.
+
+---
+
+### Phase 6 — Export, storage, and delivery automation
+
+**Objective:** Deliver prompt packages reliably to the user and external systems.
+
+**Build:**
+
+- Add object storage for Markdown, JSON, and future media.
+- Add signed, expiring download URLs.
+- Add `delivery_jobs` table.
+- Add export checksum and package version.
+- Create n8n workflow for upload and notification.
+- Add delivery retry and dead-letter status.
+- Add retention and cleanup policies.
+
+**Acceptance criteria:**
+
+- An export can be downloaded after an application restart.
+- Repeating delivery does not create duplicate package records.
+- Every download link expires.
+- Large binary files never pass through ordinary n8n JSON fields.
+
+**Main risk:** Lost or duplicated exports.
+**Control:** Store immutable export manifests with checksums.
+
+---
+
+### Phase 7 — Video and narration production jobs
+
+**Objective:** Extend from prompt generation to actual clip production without weakening the prompt system.
+
+**Build:**
+
+- Add `provider_jobs` table.
+- Define a provider-neutral video job interface.
+- Submit exactly one job per ten-second prompt.
+- Attach the prompt version and Production Contract to every job.
+- Add provider callback endpoint and polling fallback.
+- Add canonical narration/TTS job with a stable voice ID.
+- Add clip artifact records and checksums.
+- Add automatic duration, aspect-ratio, and audio checks.
+- Add a human video-review state.
+
+**Acceptance criteria:**
+
+- A failed Clip 2 job does not invalidate Clip 1.
+- A provider callback is idempotent.
+- Generated artifacts map to exact prompt versions.
+- Narration ends before the nine-second limit.
+- Clips remain 9:16 and ten seconds long.
+
+**Main risk:** Video-provider output does not obey the textual prompt.
+**Control:** Validate artifacts after generation and require review before publishing.
+
+---
+
+### Phase 8 — Publishing automation
+
+**Objective:** Automate publishing only after all content and safety gates pass.
+
+**Build:**
+
+- Add final review and publish approval state.
+- Add YouTube metadata validation.
+- Add thumbnail and title checks.
+- Add YouTube upload job records.
+- Add n8n publishing workflow.
+- Add publish callback and final URL storage.
+- Add rollback/unpublish runbook where supported.
+- Add platform-specific rate-limit handling.
+
+**Acceptance criteria:**
+
+- No project can publish without final approval.
+- Title, description, hashtags, captions, and clips are version-matched.
+- A failed upload can resume without duplicating the video.
+- Publishing credentials remain in n8n or a secret manager.
+
+**Main risk:** Irreversible external publishing.
+**Control:** Require explicit human approval immediately before publish.
+
+---
+
+### Phase 9 — Production scale and governance
+
+**Objective:** Scale safely once usage justifies it.
+
+**Build:**
+
+- Add background workers for long-running jobs.
+- Introduce n8n queue mode only when needed.
+- Add OpenTelemetry traces.
+- Add dashboards and alert thresholds.
+- Add tenant/user quotas.
+- Add model and provider cost budgets.
+- Add staged deployments and rollback.
+- Add n8n workflow version promotion.
+- Add disaster recovery testing.
+- Add security review and dependency scanning.
+
+**Acceptance criteria:**
+
+- A worker can restart without losing jobs.
+- Queue depth and stuck jobs are visible.
+- Production workflows are promoted through reviewable versions.
+- A database restore has been tested, not just documented.
+- Cost and quota limits are enforced before provider calls.
+
+**Main risk:** Operational complexity exceeds product value.
+**Control:** Do not introduce queue mode, multiple n8n instances, or media infrastructure until measured workload requires it.
+
+---
+
+## 12. Suggested delivery order
+
+For the next implementation cycle, use this exact order:
+
+```text
+1. Idempotency and database migrations
+2. API authentication and audit events
+3. Provider repair/error classification
+4. n8n development webhook
+5. Prompt-ready notification
+6. Human approval state
+7. Evidence review workflow
+8. Export delivery to object storage
+9. Video provider job abstraction
+10. Publishing workflow
+```
+
+Each item should be merged only after its acceptance criteria and regression tests pass.
+
+---
+
+## 13. Definition of robust
 
 The system is robust when:
 
@@ -549,4 +844,3 @@ Object storage = media and exports
 ```
 
 That architecture keeps the product technically credible for the Devpost Taskmaster track while leaving room to automate the complete journey from idea to published Short.
-
