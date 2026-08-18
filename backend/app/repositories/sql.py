@@ -76,7 +76,7 @@ class SqlProjectRepository:
             ]
             record.scenes_data = [scene.__dict__ for scene in project.scenes]
             record.prompts_data = [
-                {"scene_number": prompt.scene_number, "total_scenes": prompt.total_scenes, "text": prompt.text, "narration": prompt.narration, "narration_word_count": prompt.narration_word_count, "estimated_narration_seconds": prompt.estimated_narration_seconds}
+                {"scene_number": prompt.scene_number, "total_scenes": prompt.total_scenes, "text": prompt.text, "narration": prompt.narration, "narration_word_count": prompt.narration_word_count, "estimated_narration_seconds": prompt.estimated_narration_seconds, "beats": prompt.beats, "captions": prompt.captions, "continuity_lock": prompt.continuity_lock, "audio_plan": prompt.audio_plan, "final_requirements": prompt.final_requirements}
                 for prompt in project.prompts.values()
             ]
             session.commit()

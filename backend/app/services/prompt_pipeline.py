@@ -94,49 +94,108 @@ class VisualDirector:
                 response_schema=VISUAL_SCHEMA,
             )
             return VisualDirection(**result)
+        beats = {
+            "origin": [
+                {"time_range": "0–3 seconds", "title": "The small beginning", "details": ["Open on a tiny animated discovery in an ordinary setting.", "Use a slow cinematic reveal to establish the story world."]},
+                {"time_range": "3–6 seconds", "title": "The idea takes shape", "details": ["Show animated people experimenting with the discovery.", "Keep all characters generic, stylized, and clearly non-realistic."]},
+                {"time_range": "6–9 seconds", "title": "The first sign of growth", "details": ["Show the idea spreading from one small place to a larger group.", "Build visual momentum without changing the animation style."]},
+                {"time_range": "9–10 seconds", "title": "Transition hook", "details": ["End on a clear visual element that can continue into the next clip.", "Hold the final image for the last second without spoken dialogue."]},
+            ],
+            "breakthrough": [
+                {"time_range": "0–3 seconds", "title": "Continue the story", "details": ["Begin directly from the previous clip’s final visual beat.", "Show the original idea becoming more organized."]},
+                {"time_range": "3–6 seconds", "title": "The turning point", "details": ["Visualize the breakthrough that allows the idea to travel farther.", "Use a clear cinematic transformation rather than a disconnected montage."]},
+                {"time_range": "6–9 seconds", "title": "Expansion", "details": ["Move through increasingly connected animated locations.", "Make the scale visibly larger while preserving the same characters and palette."]},
+                {"time_range": "9–10 seconds", "title": "Transition hook", "details": ["Create a visual bridge into the worldwide impact scene.", "Leave the final second for music and sound effects only."]},
+            ],
+            "global_impact": [
+                {"time_range": "0–3 seconds", "title": "From the past to today", "details": ["Begin exactly from the previous clip’s transition image.", "Reveal how the original idea appears in the modern world."]},
+                {"time_range": "3–6 seconds", "title": "Beyond the original setting", "details": ["Show a cinematic montage of the idea’s modern uses.", "Keep the visual explanation immediately understandable."]},
+                {"time_range": "6–9 seconds", "title": "Worldwide reach", "details": ["Pull outward to show animated cities, regions, and connected communities.", "Build toward a clean global visual summary."]},
+                {"time_range": "9–10 seconds", "title": "Final reveal", "details": ["End with the original small beginning visually connected to the worldwide result.", "Hold the final image for a clean end card or CTA."]},
+            ],
+        }.get(scene.purpose, [])
         return VisualDirection(
             story_action=scene.summary,
             camera=context.project.continuity.camera_language,
             composition="Keep the main subject centered within the vertical mobile-safe frame.",
             transition=transition,
+            beats=beats,
         )
 
 
 class PromptComposer:
     def compose(self, context: GenerationContext, narration, visual: VisualDirection) -> VideoPrompt:
         project, scene = context.project, context.scene
+        continuity_lock = [
+            "Same fully animated cinematic style in every clip.",
+            "Same stylized, clearly non-realistic animated human design.",
+            "Humans must never appear photorealistic or resemble identifiable real people.",
+            "No named historical figures, prominent fictional characters, logos, or trademarks.",
+            f"Same cinematic lighting, palette, camera language, and visual quality: {project.continuity.palette}.",
+            f"Same exact narration voice: {project.continuity.voice_description}.",
+            "Video duration: exactly 10 seconds.",
+            "Aspect ratio: 9:16 vertical.",
+            "Narration must finish by approximately 9 seconds, leaving the final second without spoken dialogue.",
+        ]
+        captions = self._caption_lines(narration.text)
+        audio_plan = [
+            "Use the exact same narrator voice as every other clip.",
+            "Maintain the same warm, authoritative, cinematic documentary delivery.",
+            "Layer subtle animated sound effects that match the scene action.",
+            "Music should support the story and build toward the scene transition without overpowering narration.",
+            "CRITICAL AUDIO TIMING: spoken narration must finish by approximately 9.0 seconds.",
+            "Reserve the final approximately 1 second for music, ambient sound, and visual transition only.",
+        ]
+        final_requirements = [
+            "Make the clip feel like one continuous cinematic animated story, not unrelated shots.",
+            "Keep every character, environment, voice, and animation choice consistent with the continuity lock.",
+            "Do not use live-action footage or photorealistic humans.",
+            "Do not depict or imitate any specific famous person or recognizable copyrighted character.",
+            "End on a visual beat that naturally sets up the next clip or final CTA.",
+        ]
+        beat_text = "\n\n".join(
+            f"**{beat['time_range']} — {beat['title']}**\n" + "\n".join(f"- {detail}" for detail in beat["details"])
+            for beat in visual.beats
+        )
         text = f"""{GLOBAL_POLICY}
 
-PROJECT CONTINUITY
-- Animation: {project.continuity.animation_style}
-- Palette: {project.continuity.palette}
-- Camera: {project.continuity.camera_language}
-- Narration voice: {project.continuity.voice_description}
-- Same original animated character designs and voice across every scene.
+FORMAT
+10-second YouTube Shorts clip, 9:16 vertical, cinematic fully animated video.
 
-SCENE {scene.number}/{len(project.scenes)} — {scene.purpose}
-STORY ACTION
-{visual.story_action}
+CONTINUITY LOCK — MUST REMAIN IDENTICAL TO ALL OTHER CLIPS
+{chr(10).join(f"- {item}" for item in continuity_lock)}
+
+SCENE / VISUAL STORY
+Scene {scene.number}/{len(project.scenes)} — {scene.purpose}
+Overall action: {visual.story_action}
+
+{beat_text}
 
 CAMERA AND COMPOSITION
-- Camera: {visual.camera}
+- Camera language: {visual.camera}
 - Composition: {visual.composition}
-- Transition: {visual.transition}
+- Transition direction: {visual.transition}
 
-NARRATION
-Use the locked narration voice. Finish speaking before 9 seconds:
+NARRATION — EXACT SCRIPT
+Use the locked narrator voice. The script must be spoken exactly as written:
 \"{narration.text}\"
 
 CAPTIONS
-Burn synchronized, mobile-safe captions into the video with short readable lines.
+Synchronize captions precisely with the narration:
+{chr(10).join(f'- "{line}"' for line in captions)}
+Keep captions large, cinematic, mobile-readable, and safely inside the 9:16 frame.
 
 AUDIO
-Use restrained cinematic music and subtle animated sound effects. Keep narration clear.
-Reserve the final second for a clean hold or transition; never cut speech abruptly.
+{chr(10).join(f'- {item}' for item in audio_plan)}
 
-SAFETY
-Use only original animated people and environments. No real-looking humans, real-person
-likenesses, prominent characters, logos, trademarks, or live-action imagery."""
+SAFETY AND EXCLUSIONS
+- Fully animated visuals only; no live-action footage or photorealistic humans.
+- No identifiable real-person likenesses, named prominent figures, or recognizable copyrighted characters.
+- No logos, trademarks, or imitation of a specific person.
+
+FINAL GENERATION REQUIREMENTS
+{chr(10).join(f'- {item}' for item in final_requirements)}
+"""
         return VideoPrompt(
             project_id=project.id,
             scene_number=scene.number,
@@ -145,7 +204,20 @@ likenesses, prominent characters, logos, trademarks, or live-action imagery."""
             narration=narration.text,
             narration_word_count=narration.word_count,
             estimated_narration_seconds=narration.estimated_seconds,
+            beats=visual.beats,
+            captions=captions,
+            continuity_lock=continuity_lock,
+            audio_plan=audio_plan,
+            final_requirements=final_requirements,
         )
+
+    @staticmethod
+    def _caption_lines(text: str) -> list[str]:
+        words = text.replace("—", " ").split()
+        if len(words) <= 5:
+            return [text]
+        chunk_size = max(3, min(5, round(len(words) / 4)))
+        return [" ".join(words[index:index + chunk_size]) for index in range(0, len(words), chunk_size)]
 
 
 class PromptGenerationPipeline:

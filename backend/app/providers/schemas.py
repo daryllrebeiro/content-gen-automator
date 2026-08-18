@@ -32,7 +32,18 @@ VISUAL_SCHEMA = {
         "camera": {"type": "string"},
         "composition": {"type": "string"},
         "transition": {"type": "string"},
+        "beats": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "time_range": {"type": "string"},
+                    "title": {"type": "string"},
+                    "details": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["time_range", "title", "details"],
+            },
+        },
     },
-    "required": ["story_action", "camera", "composition", "transition"],
+    "required": ["story_action", "camera", "composition", "transition", "beats"],
 }
-

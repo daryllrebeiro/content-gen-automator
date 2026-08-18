@@ -66,6 +66,11 @@ class VideoPrompt:
     narration: str
     narration_word_count: int
     estimated_narration_seconds: float
+    beats: list[dict[str, object]] = field(default_factory=list)
+    captions: list[str] = field(default_factory=list)
+    continuity_lock: list[str] = field(default_factory=list)
+    audio_plan: list[str] = field(default_factory=list)
+    final_requirements: list[str] = field(default_factory=list)
 
 
 @dataclass

@@ -32,6 +32,12 @@ class FakeStructuredProvider:
             "camera": "Slow vertical push-in",
             "composition": "Keep the subject centered.",
             "transition": "Flow into the next scene.",
+            "beats": [
+                {"time_range": "0–3 seconds", "title": "Opening", "details": ["Show the beginning."]},
+                {"time_range": "3–6 seconds", "title": "Growth", "details": ["Show the change."]},
+                {"time_range": "6–9 seconds", "title": "Reach", "details": ["Show the wider impact."]},
+                {"time_range": "9–10 seconds", "title": "Transition", "details": ["Hold for the transition."]},
+            ],
         }
 
 
@@ -51,6 +57,11 @@ def test_project_generates_prompts_one_at_a_time():
     assert first.scene_number == 1
     assert project.status == ProjectStatus.AWAITING_NEXT
     assert "exactly 10 seconds" in first.text
+    assert "CONTINUITY LOCK — MUST REMAIN IDENTICAL" in first.text
+    assert "SCENE / VISUAL STORY" in first.text
+    assert "NARRATION — EXACT SCRIPT" in first.text
+    assert "CAPTIONS" in first.text
+    assert "FINAL GENERATION REQUIREMENTS" in first.text
     assert first.estimated_narration_seconds < 9
 
     second = service.generate_next(project.id)

@@ -16,6 +16,7 @@ class VisualDirection:
     camera: str
     composition: str
     transition: str
+    beats: list[dict[str, object]] = field(default_factory=list)
 
 
 @dataclass
@@ -29,8 +30,15 @@ class ProductionContract:
 
 
 @dataclass
+class PromptSections:
+    continuity_lock: list[str] = field(default_factory=list)
+    captions: list[str] = field(default_factory=list)
+    audio_plan: list[str] = field(default_factory=list)
+    final_requirements: list[str] = field(default_factory=list)
+
+
+@dataclass
 class GenerationContext:
     project: Project
     scene: Scene
     contract: ProductionContract = field(default_factory=ProductionContract)
-
