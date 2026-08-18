@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 
 from app.domain.project import Project, Scene
+from app.policies.contract import NARRATION_CUTOFF_SECONDS, SAFETY_POLICY_VERSION, VOICE_LOCK_ID
 
 
 @dataclass
@@ -23,10 +24,10 @@ class VisualDirection:
 class ProductionContract:
     duration_seconds: int = 10
     aspect_ratio: str = "9:16"
-    narration_max_seconds: float = 9.0
+    narration_max_seconds: float = NARRATION_CUTOFF_SECONDS
     animation_only: bool = True
-    voice_id: str = "documentary_voice_01"
-    safety_policy_version: str = "global_video_policy_v1"
+    voice_id: str = VOICE_LOCK_ID
+    safety_policy_version: str = SAFETY_POLICY_VERSION
 
 
 @dataclass

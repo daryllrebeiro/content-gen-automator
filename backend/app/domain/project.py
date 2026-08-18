@@ -4,6 +4,7 @@ from typing import Literal
 from uuid import UUID, uuid4
 
 from app.domain.facts import FactClaim
+from app.policies.contract import PROMPT_TEMPLATE_VERSION, scene_count_for_duration
 
 
 DurationSeconds = Literal[10, 20, 30]
@@ -21,7 +22,7 @@ class ProjectStatus(str, Enum):
 
 
 def scene_count(duration_seconds: DurationSeconds) -> int:
-    return duration_seconds // 10
+    return scene_count_for_duration(duration_seconds)
 
 
 @dataclass
@@ -72,7 +73,7 @@ class VideoPrompt:
     audio_plan: list[str] = field(default_factory=list)
     final_requirements: list[str] = field(default_factory=list)
     version_number: int = 1
-    template_version: str = "prompt_composer_v1"
+    template_version: str = PROMPT_TEMPLATE_VERSION
     why_this_prompt: list[str] = field(default_factory=list)
     quality_scores: dict[str, float] = field(default_factory=dict)
     provider_name: str = "mock"

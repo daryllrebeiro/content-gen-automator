@@ -9,6 +9,7 @@ from app.domain.facts import FactStatus
 from app.services.fact_engine import FactEngine
 from app.services.prompt_pipeline import PromptGenerationPipeline, StoryArchitect
 from app.services.export_service import ExportService
+from app.policies.contract import REQUIRED_PROMPT_SECTIONS, scene_count_for_duration
 
 
 class FakeStructuredProvider:
@@ -48,6 +49,21 @@ class FakeStructuredProvider:
 )
 def test_scene_count(duration_seconds, expected):
     assert scene_count(duration_seconds) == expected
+
+
+def test_product_contract_allows_only_supported_durations():
+    assert [scene_count_for_duration(value) for value in (10, 20, 30)] == [1, 2, 3]
+    try:
+        scene_count_for_duration(40)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Unsupported duration should fail the product contract")
+
+
+def test_product_contract_has_versioned_prompt_sections():
+    assert "NARRATION — EXACT SCRIPT" in REQUIRED_PROMPT_SECTIONS
+    assert "SAFETY AND EXCLUSIONS" in REQUIRED_PROMPT_SECTIONS
 
 
 def test_project_generates_prompts_one_at_a_time():

@@ -1,8 +1,8 @@
 from app.domain.generation import NarrationDraft
+from app.policies.contract import MAX_NARRATION_WORDS, NARRATION_CUTOFF_SECONDS
 
 
-MAX_NARRATION_SECONDS = 9.0
-MAX_NARRATION_WORDS = 20
+MAX_NARRATION_SECONDS = NARRATION_CUTOFF_SECONDS
 
 
 class NarrationValidationError(ValueError):
@@ -30,4 +30,3 @@ def validate_narration(draft: NarrationDraft) -> None:
         raise NarrationValidationError("Narration must finish before the 9-second cutoff.")
     if draft.text[-1] not in ".!?\"”':;)":
         raise NarrationValidationError("Narration must end as a complete sentence.")
-
