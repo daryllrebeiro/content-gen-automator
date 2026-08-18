@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: short_agent
+      POSTGRES_USER: short_agent
+      POSTGRES_PASSWORD: short_agent
+    ports:
+      - "5432:5432"
+    volumes:
+      - short_agent_postgres:/var/lib/postgresql/data
+
+volumes:
+  short_agent_postgres:
+

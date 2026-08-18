@@ -63,3 +63,15 @@ def test_pipeline_output_satisfies_prompt_contract():
     prompt = service.generate_next(project.id)
     validate_prompt(prompt, contract=ProductionContract())
     assert "VISUAL DIRECTION" in prompt.text
+
+
+def test_in_memory_repository_round_trip_preserves_project_state():
+    repository = InMemoryProjectRepository()
+    service = ProjectService(repository)
+    project = service.create(ProjectInput(topic="Persistence test", duration_seconds=20))
+    service.generate_next(project.id)
+
+    restored = repository.get(project.id)
+    assert restored.input.topic == "Persistence test"
+    assert restored.current_scene_number == 1
+    assert restored.prompts[1].scene_number == 1

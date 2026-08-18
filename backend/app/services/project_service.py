@@ -1,4 +1,5 @@
 from uuid import UUID
+import os
 
 from app.domain.project import Project, ProjectInput, ProjectStatus, VideoPrompt
 from app.services.prompt_pipeline import PromptGenerationPipeline, StoryArchitect
@@ -29,9 +30,17 @@ class InMemoryProjectRepository:
 
 class ProjectService:
     def __init__(self, repository: InMemoryProjectRepository | None = None) -> None:
-        self.repository = repository or InMemoryProjectRepository()
+        self.repository = repository or self._default_repository()
         self.story_architect = StoryArchitect()
         self.prompt_pipeline = PromptGenerationPipeline()
+
+    @staticmethod
+    def _default_repository():
+        if os.getenv("PROJECT_REPOSITORY", "memory").lower() != "postgres":
+            return InMemoryProjectRepository()
+        from app.repositories.sql import SqlProjectRepository
+
+        return SqlProjectRepository(os.environ["DATABASE_URL"])
 
     def create(self, project_input: ProjectInput) -> Project:
         project = Project(input=project_input, status=ProjectStatus.INPUT_RECEIVED)
