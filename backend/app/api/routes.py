@@ -9,6 +9,7 @@ from app.schemas.projects import (
     ProjectCreateRequest,
     ProjectResponse,
     PromptResponse,
+    PublishingResponse,
     SceneResponse,
 )
 from app.domain.project import ProjectInput

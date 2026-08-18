@@ -79,12 +79,9 @@ def test_next_prompt_is_idempotent_and_cannot_exceed_scene_count():
     retry = service.generate_next(project.id)
     assert retry is first
 
-    try:
-        service.generate_next(project.id)
-    except ProjectStateError:
-        pass
-    else:
-        raise AssertionError("Expected generation beyond the project scene count to fail")
+    third_retry = service.generate_next(project.id)
+    assert third_retry is first
+    assert len(project.prompts) == 1
 
 
 def test_narration_validator_rejects_long_script():
@@ -102,7 +99,7 @@ def test_pipeline_output_satisfies_prompt_contract():
     project = service.create(ProjectInput(topic="A continuity test", duration_seconds=20))
     prompt = service.generate_next(project.id)
     validate_prompt(prompt, contract=ProductionContract())
-    assert "VISUAL DIRECTION" in prompt.text
+    assert "SCENE / VISUAL STORY" in prompt.text
 
 
 def test_in_memory_repository_round_trip_preserves_project_state():

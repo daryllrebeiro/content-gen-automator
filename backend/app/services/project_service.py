@@ -67,6 +67,8 @@ class ProjectService:
         project = self.repository.get(project_id)
         next_number = project.current_scene_number + 1
         if next_number > len(project.scenes):
+            if project.scenes and project.scenes[-1].number in project.prompts:
+                return project.prompts[project.scenes[-1].number]
             raise ProjectStateError("All prompts have already been generated.")
 
         existing = project.prompts.get(next_number)
