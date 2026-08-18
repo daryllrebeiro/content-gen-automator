@@ -1,7 +1,10 @@
 import pytest
 
+from app.domain.generation import ProductionContract
 from app.domain.project import ProjectInput, ProjectStatus, scene_count
 from app.services.project_service import InMemoryProjectRepository, ProjectService, ProjectStateError
+from app.services.narration_validator import NarrationValidationError, draft_narration
+from app.services.prompt_validator import validate_prompt
 
 
 @pytest.mark.parametrize(
@@ -42,3 +45,21 @@ def test_next_prompt_is_idempotent_and_cannot_exceed_scene_count():
         pass
     else:
         raise AssertionError("Expected generation beyond the project scene count to fail")
+
+
+def test_narration_validator_rejects_long_script():
+    long_script = "This sentence is intentionally much too long for a ten second animated short narration and should be rejected by the timing guardrail."
+    try:
+        draft_narration(long_script)
+    except NarrationValidationError:
+        pass
+    else:
+        raise AssertionError("Expected long narration to fail validation")
+
+
+def test_pipeline_output_satisfies_prompt_contract():
+    service = ProjectService(InMemoryProjectRepository())
+    project = service.create(ProjectInput(topic="A continuity test", duration_seconds=20))
+    prompt = service.generate_next(project.id)
+    validate_prompt(prompt, contract=ProductionContract())
+    assert "VISUAL DIRECTION" in prompt.text

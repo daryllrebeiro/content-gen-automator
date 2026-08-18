@@ -1,7 +1,7 @@
 from uuid import UUID
 
 from app.domain.project import Project, ProjectInput, ProjectStatus, VideoPrompt
-from app.providers.mock import MockProvider
+from app.services.prompt_pipeline import PromptGenerationPipeline, StoryArchitect
 
 
 class ProjectNotFoundError(LookupError):
@@ -30,11 +30,12 @@ class InMemoryProjectRepository:
 class ProjectService:
     def __init__(self, repository: InMemoryProjectRepository | None = None) -> None:
         self.repository = repository or InMemoryProjectRepository()
-        self.provider = MockProvider()
+        self.story_architect = StoryArchitect()
+        self.prompt_pipeline = PromptGenerationPipeline()
 
     def create(self, project_input: ProjectInput) -> Project:
         project = Project(input=project_input, status=ProjectStatus.INPUT_RECEIVED)
-        self.provider.create_story(project)
+        self.story_architect.create(project)
         project.status = ProjectStatus.SCENES_PLANNED
         self.repository.save(project)
         return project
@@ -49,7 +50,7 @@ class ProjectService:
         if existing is not None:
             return existing
 
-        prompt = self.provider.generate_prompt(project, project.scenes[next_number - 1])
+        prompt = self.prompt_pipeline.generate(project, project.scenes[next_number - 1])
         project.prompts[next_number] = prompt
         project.current_scene_number = next_number
         project.status = (
