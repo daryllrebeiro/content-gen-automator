@@ -20,6 +20,7 @@ export type Prompt = {
   estimated_narration_seconds: number;
   version_number: number;
   template_version: string;
+  why_this_prompt: string[];
 };
 
 export type Project = {

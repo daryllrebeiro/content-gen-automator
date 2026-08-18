@@ -35,6 +35,7 @@ class PromptResponse(BaseModel):
     estimated_narration_seconds: float
     version_number: int = 1
     template_version: str = "prompt_composer_v1"
+    why_this_prompt: list[str] = []
 
 
 class FactResponse(BaseModel):

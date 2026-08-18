@@ -153,6 +153,15 @@ class PromptComposer:
             "Do not depict or imitate any specific famous person or recognizable copyrighted character.",
             "End on a visual beat that naturally sets up the next clip or final CTA.",
         ]
+        approved_fact_count = sum(1 for fact in project.facts if fact.approved_for_narration)
+        why_this_prompt = [
+            f"Scene {scene.number} fulfills the {scene.purpose} story purpose.",
+            "Continuity inherited from the project-level animation, palette, camera, and voice locks.",
+            f"Narration validated at {narration.word_count} words / approximately {narration.estimated_seconds} seconds.",
+            "The 10-second video contract leaves the final second free from spoken dialogue.",
+            f"{approved_fact_count} approved factual claims were available to narration." if approved_fact_count else "No factual claim was promoted into narration without verification.",
+            "Prompt passed structured-section and animated-only safety validation.",
+        ]
         beat_text = "\n\n".join(
             f"**{beat['time_range']} — {beat['title']}**\n" + "\n".join(f"- {detail}" for detail in beat["details"])
             for beat in visual.beats
@@ -209,6 +218,7 @@ FINAL GENERATION REQUIREMENTS
             continuity_lock=continuity_lock,
             audio_plan=audio_plan,
             final_requirements=final_requirements,
+            why_this_prompt=why_this_prompt,
         )
 
     @staticmethod

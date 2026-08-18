@@ -13,6 +13,7 @@ export default function HomePage() {
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [openWhy, setOpenWhy] = useState<number | null>(null);
 
   async function startProject(event: FormEvent) {
     event.preventDefault();
@@ -107,7 +108,7 @@ export default function HomePage() {
         </section>
         {project.facts.length > 0 && <section className="panel fact-panel"><p className="eyebrow">FACT STATUS</p>{project.facts.map((fact) => <div className="fact-row" key={fact.id}><span>{fact.text}</span><span className={fact.approved_for_narration ? "fact-approved" : "fact-pending"}>{fact.status.replace("_", " ")}</span></div>)}</section>}
         <section className="prompt-list">
-          {prompts.map((prompt) => <article className="prompt-card" key={prompt.scene_number}><div className="prompt-heading"><div><p className="eyebrow">SCENE {prompt.scene_number}/{prompt.total_scenes} · VERSION {prompt.version_number}</p><h2>{prompt.narration}</h2></div><span className="timing">{prompt.narration_word_count} words · {prompt.estimated_narration_seconds}s</span></div><pre>{prompt.text}</pre><div className="prompt-actions"><button className="copy-button" onClick={() => navigator.clipboard.writeText(prompt.text)}>Copy prompt</button><button className="copy-button" disabled={busy} onClick={() => regenerate(prompt.scene_number)}>Regenerate scene</button></div></article>)}
+          {prompts.map((prompt) => <article className="prompt-card" key={prompt.scene_number}><div className="prompt-heading"><div><p className="eyebrow">SCENE {prompt.scene_number}/{prompt.total_scenes} · VERSION {prompt.version_number}</p><h2>{prompt.narration}</h2></div><span className="timing">{prompt.narration_word_count} words · {prompt.estimated_narration_seconds}s</span></div><pre>{prompt.text}</pre><div className="prompt-actions"><button className="copy-button" onClick={() => navigator.clipboard.writeText(prompt.text)}>Copy prompt</button><button className="copy-button" disabled={busy} onClick={() => regenerate(prompt.scene_number)}>Regenerate scene</button><button className="why-button" onClick={() => setOpenWhy(openWhy === prompt.scene_number ? null : prompt.scene_number)}>Why this prompt? {openWhy === prompt.scene_number ? "↑" : "↓"}</button></div>{openWhy === prompt.scene_number && <div className="why-panel"><p className="eyebrow">PRODUCTION REASONING</p>{prompt.why_this_prompt.map((reason) => <p className="why-row" key={reason}>✓ {reason}</p>)}</div>}</article>)}
         </section>
         {error && <p className="error">{error}</p>}
         <div className="action-row">{complete ? <><p className="complete">Project complete · {prompts.length} prompts ready</p><button className="primary" disabled={busy} onClick={downloadExport}>{busy ? "Preparing…" : "Export package ↓"}</button></> : <button className="primary" disabled={busy} onClick={nextPrompt}>{busy ? "Generating…" : "Generate next prompt →"}</button>}<button className="secondary" onClick={() => { setProject(null); setPrompts([]); }}>New Short</button></div>

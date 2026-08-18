@@ -41,6 +41,7 @@ def _prompt_response(prompt) -> PromptResponse:
         estimated_narration_seconds=prompt.estimated_narration_seconds,
         version_number=prompt.version_number,
         template_version=prompt.template_version,
+        why_this_prompt=prompt.why_this_prompt,
     )
 
 

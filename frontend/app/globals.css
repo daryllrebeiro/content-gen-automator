@@ -49,6 +49,9 @@ legend { font-size: 14px; font-weight: 700; margin-bottom: 10px; }
 pre { background: #0c0c13; border: 1px solid #242433; border-radius: 9px; color: #d4d4df; font: 13px/1.6 Consolas, monospace; max-height: 370px; overflow: auto; padding: 16px; white-space: pre-wrap; }
 .copy-button { margin-top: 10px; font-size: 12px; }
 .prompt-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.why-button { background: rgba(199, 243, 107, .08); border: 1px solid rgba(199, 243, 107, .3); border-radius: 8px; color: var(--accent); font-size: 12px; font-weight: 700; margin-top: 10px; padding: 12px 16px; }
+.why-panel { background: #10101a; border: 1px solid rgba(199, 243, 107, .2); border-radius: 9px; margin-top: 16px; padding: 16px; }
+.why-row { color: var(--muted); font-size: 13px; line-height: 1.5; margin: 8px 0; }
 .error { color: #ff8f8f; margin: 14px 0; }
 .complete { color: var(--accent); font-weight: 700; }
 @media (max-width: 680px) { .shell { padding: 20px 16px 50px; } .two-col, .lock-grid { grid-template-columns: 1fr; gap: 0; } .duration-row { flex-wrap: wrap; } .duration { min-width: 30%; } .prompt-heading { display: block; } .timing { display: block; margin-top: 12px; } .action-row { align-items: stretch; flex-direction: column; } }
