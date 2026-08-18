@@ -14,6 +14,7 @@ from app.domain.project import (
     VideoPrompt,
 )
 from app.domain.facts import FactClaim, FactStatus
+from app.domain.integration import AuditEvent, IdempotencyRecord
 from app.services.project_service import ProjectNotFoundError
 
 
@@ -38,6 +39,27 @@ class ProjectRecord(Base):
     prompt_history_data: Mapped[dict[str, list[dict[str, Any]]]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class IdempotencyRecordRow(Base):
+    __tablename__ = "idempotency_keys"
+
+    key: Mapped[str] = mapped_column(String(200), primary_key=True)
+    operation: Mapped[str] = mapped_column(String(100))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    response_data: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class IntegrationEventRecord(Base):
+    __tablename__ = "integration_events"
+
+    event_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    event_type: Mapped[str] = mapped_column(String(100))
+    project_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    request_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    metadata_data: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 class SqlProjectRepository:
@@ -96,6 +118,31 @@ class SqlProjectRepository:
             if record is None:
                 raise ProjectNotFoundError(str(project_id))
             return self._to_domain(record)
+
+    def get_idempotency(self, key: str) -> IdempotencyRecord | None:
+        with Session(self.engine) as session:
+            record = session.get(IdempotencyRecordRow, key)
+            if record is None:
+                return None
+            return IdempotencyRecord(record.key, record.operation, record.request_hash, record.response_data or {}, record.created_at)
+
+    def save_idempotency(self, item: IdempotencyRecord) -> None:
+        with Session(self.engine) as session:
+            record = session.get(IdempotencyRecordRow, item.key)
+            if record is None:
+                record = IdempotencyRecordRow(key=item.key, operation=item.operation, request_hash=item.request_hash, response_data=item.response)
+                session.add(record)
+            else:
+                record.operation = item.operation
+                record.request_hash = item.request_hash
+                record.response_data = item.response
+            session.commit()
+
+    def save_audit_event(self, event: AuditEvent) -> None:
+        with Session(self.engine) as session:
+            if session.get(IntegrationEventRecord, event.event_id) is None:
+                session.add(IntegrationEventRecord(event_id=event.event_id, event_type=event.event_type, project_id=event.project_id, request_id=event.request_id, metadata_data=event.metadata))
+                session.commit()
 
     @staticmethod
     def _to_domain(record: ProjectRecord) -> Project:

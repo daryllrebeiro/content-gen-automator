@@ -43,6 +43,26 @@ GEMINI_MODEL=gemini-2.5-flash
 
 The default remains `mock`, so local development and tests do not require an API key.
 
+## n8n integration foundation
+
+Phase 1 exposes an integration-safe project creation endpoint:
+
+```text
+POST /api/integrations/projects
+Idempotency-Key: <stable-workflow-key>
+X-Request-ID: <optional-correlation-id>
+Authorization: Bearer <INTEGRATION_SERVICE_TOKEN>
+```
+
+The endpoint returns a stable `project_id` on retries. Reusing a key with a different payload returns `409`. In development, authentication is open when `INTEGRATION_SERVICE_TOKEN` is empty; set the token in staging and production. Reliability records are persisted in PostgreSQL by migration `database/migrations/002_reliability.sql`.
+
+Apply migrations in a deployed environment with:
+
+```powershell
+$env:DATABASE_URL = "postgresql://..."
+python scripts/migrate.py
+```
+
 ## End-to-end smoke test
 
 With the backend dependencies installed, run from the repository root:

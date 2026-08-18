@@ -1,5 +1,10 @@
 from uuid import UUID
 import os
+import hashlib
+import json
+from datetime import datetime, timezone
+from typing import Any
+from app.domain.integration import AuditEvent, IdempotencyRecord
 
 from app.domain.project import Project, ProjectInput, ProjectStatus, VideoPrompt
 from app.services.prompt_pipeline import PromptGenerationPipeline, StoryArchitect
@@ -17,6 +22,8 @@ class ProjectStateError(ValueError):
 class InMemoryProjectRepository:
     def __init__(self) -> None:
         self._projects: dict[UUID, Project] = {}
+        self._idempotency: dict[str, IdempotencyRecord] = {}
+        self.audit_events: list[AuditEvent] = []
 
     def save(self, project: Project) -> Project:
         self._projects[project.id] = project
@@ -27,6 +34,15 @@ class InMemoryProjectRepository:
             return self._projects[project_id]
         except KeyError as exc:
             raise ProjectNotFoundError(str(project_id)) from exc
+
+    def get_idempotency(self, key: str) -> IdempotencyRecord | None:
+        return self._idempotency.get(key)
+
+    def save_idempotency(self, record: IdempotencyRecord) -> None:
+        self._idempotency[record.key] = record
+
+    def save_audit_event(self, event: AuditEvent) -> None:
+        self.audit_events.append(event)
 
 
 class ProjectService:
@@ -61,7 +77,31 @@ class ProjectService:
         self.story_architect.create(project)
         project.status = ProjectStatus.SCENES_PLANNED
         self.repository.save(project)
+        self._audit("project.created", str(project.id), metadata={"duration_seconds": project.input.duration_seconds})
         return project
+
+    def create_idempotent(self, key: str, request_hash: str, project_input: ProjectInput) -> tuple[Project, bool]:
+        existing = getattr(self.repository, "get_idempotency", lambda _: None)(key)
+        if existing is not None:
+            if existing.operation != "integration.projects.create" or existing.request_hash != request_hash:
+                raise ProjectStateError("Idempotency key was reused with a different request payload.")
+            return self.repository.get(UUID(existing.response["project_id"])), True
+        project = self.create(project_input)
+        record = IdempotencyRecord(
+            key=key,
+            operation="integration.projects.create",
+            request_hash=request_hash,
+            response={"project_id": str(project.id)},
+            created_at=datetime.now(timezone.utc),
+        )
+        if hasattr(self.repository, "save_idempotency"):
+            self.repository.save_idempotency(record)
+        return project, False
+
+    def _audit(self, event_type: str, project_id: str | None, request_id: str | None = None, metadata: dict[str, Any] | None = None) -> None:
+        if hasattr(self.repository, "save_audit_event"):
+            event = AuditEvent.now(hashlib.sha256(f"{event_type}:{project_id}:{datetime.now(timezone.utc).timestamp()}".encode()).hexdigest()[:24], event_type, project_id, request_id, metadata)
+            self.repository.save_audit_event(event)
 
     def generate_next(self, project_id: UUID) -> VideoPrompt:
         project = self.repository.get(project_id)
@@ -84,6 +124,7 @@ class ProjectService:
             else ProjectStatus.AWAITING_NEXT
         )
         self.repository.save(project)
+        self._audit("prompt.generated", str(project.id), metadata={"scene_number": next_number, "version": prompt.version_number})
         return prompt
 
     def regenerate(self, project_id: UUID, scene_number: int) -> VideoPrompt:
@@ -101,4 +142,5 @@ class ProjectService:
         regenerated.template_version = current.template_version
         project.prompts[scene_number] = regenerated
         self.repository.save(project)
+        self._audit("prompt.regenerated", str(project.id), metadata={"scene_number": scene_number, "version": regenerated.version_number})
         return regenerated

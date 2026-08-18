@@ -83,3 +83,10 @@ class ExportResponse(BaseModel):
     markdown: str
     publishing: PublishingResponse
     data: dict
+
+
+class IntegrationProjectResponse(BaseModel):
+    project_id: UUID
+    created: bool
+    status: str
+    total_scenes: int

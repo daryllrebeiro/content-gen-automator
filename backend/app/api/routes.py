@@ -1,6 +1,8 @@
 from uuid import UUID
+import hashlib
+import json
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 
 from app.schemas.health import HealthResponse, ReadinessResponse
 from app.config import settings
@@ -12,6 +14,7 @@ from app.schemas.projects import (
     PromptResponse,
     PublishingResponse,
     SceneResponse,
+    IntegrationProjectResponse,
 )
 from app.domain.project import ProjectInput
 from app.services.project_service import (
@@ -20,6 +23,7 @@ from app.services.project_service import (
     ProjectStateError,
 )
 from app.services.export_service import ExportService
+from app.api.integration_auth import require_integration_auth
 
 
 router = APIRouter()
@@ -172,3 +176,38 @@ def export_project(project_id: UUID) -> ExportResponse:
         publishing=PublishingResponse(**publishing.__dict__),
         data=export_service.export_json(project),
     )
+
+
+@router.post(
+    "/api/integrations/projects",
+    response_model=IntegrationProjectResponse,
+    tags=["integrations"],
+    dependencies=[Depends(require_integration_auth)],
+)
+def integration_create_project(
+    request: ProjectCreateRequest,
+    idempotency_key: str = Header(alias="Idempotency-Key"),
+    request_id: str | None = Header(default=None, alias="X-Request-ID"),
+) -> IntegrationProjectResponse:
+    payload = request.model_dump(mode="json")
+    request_hash = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+    try:
+        project, existed = project_service.create_idempotent(
+            idempotency_key,
+            request_hash,
+            ProjectInput(
+                topic=request.topic,
+                facts=request.facts,
+                source_urls=request.source_urls,
+                language=request.language,
+                tone=request.tone,
+                audience=request.audience,
+                visual_preferences=request.visual_preferences,
+                duration_seconds=request.duration_seconds,
+            ),
+        )
+    except ProjectStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if request_id:
+        project_service._audit("integration.project_create", str(project.id), request_id, {"idempotency_key": idempotency_key, "replayed": existed})
+    return IntegrationProjectResponse(project_id=project.id, created=not existed, status=project.status.value, total_scenes=len(project.scenes))
