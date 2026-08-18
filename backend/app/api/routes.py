@@ -2,7 +2,7 @@ from uuid import UUID, uuid4
 import hashlib
 import json
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 
 from app.schemas.health import HealthResponse, ReadinessResponse
 from app.config import settings
@@ -20,6 +20,8 @@ from app.schemas.projects import (
     ApprovalRequest,
     ApprovalResponse,
     FactVerificationResponse,
+    DeliveryJobResponse,
+    ExportManifestResponse,
 )
 from app.domain.project import ProjectInput
 from app.services.project_service import (
@@ -29,11 +31,13 @@ from app.services.project_service import (
 )
 from app.services.export_service import ExportService
 from app.api.integration_auth import require_integration_auth
+from app.services.delivery_service import DeliveryService
 
 
 router = APIRouter()
 project_service = ProjectService()
 export_service = ExportService()
+delivery_service = DeliveryService()
 
 
 @router.get("/health", response_model=HealthResponse, tags=["system"])
@@ -368,3 +372,73 @@ def integration_fact_job_status(job_id: str) -> FactVerificationResponse:
     if job is None:
         raise HTTPException(status_code=404, detail="Fact verification job not found")
     return _fact_job_response(job)
+
+
+def _manifest_response(manifest) -> ExportManifestResponse:
+    return ExportManifestResponse(manifest_id=manifest.manifest_id, project_id=UUID(manifest.project_id), package_version=manifest.package_version, checksum=manifest.checksum, expires_at=manifest.expires_at.isoformat(), download_token=delivery_service.sign_manifest(manifest, settings.export_signing_secret))
+
+
+@router.post(
+    "/api/integrations/projects/{project_id}/exports/manifest",
+    response_model=ExportManifestResponse,
+    tags=["integrations"],
+    dependencies=[Depends(require_integration_auth)],
+)
+def integration_create_export_manifest(project_id: UUID, idempotency_key: str = Header(alias="Idempotency-Key"), request_id: str | None = Header(default=None, alias="X-Request-ID")) -> ExportManifestResponse:
+    request_hash = hashlib.sha256(f"integration.exports.manifest:{project_id}".encode()).hexdigest()
+    existing = getattr(project_service.repository, "get_idempotency", lambda _: None)(idempotency_key)
+    if existing is not None and (existing.operation != "integration.exports.manifest" or existing.request_hash != request_hash):
+        raise HTTPException(status_code=409, detail="Idempotency key was reused with a different request.")
+    try:
+        manifest = project_service.repository.get_export_manifest(existing.response["manifest_id"]) if existing is not None and hasattr(project_service.repository, "get_export_manifest") else None
+        if manifest is None:
+            project = project_service.repository.get(project_id)
+            manifest = delivery_service.create_manifest(project, project_service.repository, export_service)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+    if existing is None and hasattr(project_service.repository, "save_idempotency"):
+        from app.domain.integration import IdempotencyRecord
+        from datetime import datetime, timezone
+        project_service.repository.save_idempotency(IdempotencyRecord(idempotency_key, "integration.exports.manifest", request_hash, {"manifest_id": manifest.manifest_id}, datetime.now(timezone.utc)))
+    if request_id:
+        project_service._audit("integration.export_manifest", str(project_id), request_id, {"manifest_id": manifest.manifest_id, "checksum": manifest.checksum})
+    return _manifest_response(manifest)
+
+
+@router.get(
+    "/api/integrations/exports/{manifest_id}/download",
+    tags=["integrations"],
+    dependencies=[Depends(require_integration_auth)],
+)
+def integration_download_export(manifest_id: str, token: str = Query(...)) -> dict:
+    if delivery_service.verify_token(token, settings.export_signing_secret) != manifest_id:
+        raise HTTPException(status_code=403, detail="Invalid or expired download token")
+    manifest = getattr(project_service.repository, "get_export_manifest", lambda _: None)(manifest_id)
+    if manifest is None:
+        raise HTTPException(status_code=404, detail="Export manifest not found")
+    return {"manifest_id": manifest.manifest_id, "checksum": manifest.checksum, "package_version": manifest.package_version, "markdown": manifest.markdown, "data": manifest.data}
+
+
+@router.post(
+    "/api/integrations/projects/{project_id}/delivery",
+    response_model=DeliveryJobResponse,
+    tags=["integrations"],
+    dependencies=[Depends(require_integration_auth)],
+)
+def integration_queue_delivery(project_id: UUID, manifest_id: str, idempotency_key: str = Header(alias="Idempotency-Key"), request_id: str | None = Header(default=None, alias="X-Request-ID")) -> DeliveryJobResponse:
+    request_hash = hashlib.sha256(f"integration.delivery:{project_id}:{manifest_id}".encode()).hexdigest()
+    existing = getattr(project_service.repository, "get_idempotency", lambda _: None)(idempotency_key)
+    if existing is not None and (existing.operation != "integration.delivery" or existing.request_hash != request_hash):
+        raise HTTPException(status_code=409, detail="Idempotency key was reused with a different request.")
+    manifest = getattr(project_service.repository, "get_export_manifest", lambda _: None)(manifest_id)
+    if manifest is None or manifest.project_id != str(project_id):
+        raise HTTPException(status_code=404, detail="Export manifest not found")
+    job = getattr(project_service.repository, "get_delivery_job", lambda _: None)(existing.response["job_id"]) if existing is not None else None
+    if job is None:
+        project = project_service.repository.get(project_id)
+        job = delivery_service.queue_delivery(project, manifest, project_service.repository)
+    if existing is None and hasattr(project_service.repository, "save_idempotency"):
+        from app.domain.integration import IdempotencyRecord
+        from datetime import datetime, timezone
+        project_service.repository.save_idempotency(IdempotencyRecord(idempotency_key, "integration.delivery", request_hash, {"job_id": job.job_id}, datetime.now(timezone.utc)))
+    return DeliveryJobResponse(job_id=job.job_id, project_id=project_id, manifest_id=job.manifest_id, status=job.status, attempts=job.attempts, error=job.error)

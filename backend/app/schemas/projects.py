@@ -126,3 +126,21 @@ class FactVerificationResponse(BaseModel):
     verified_count: int
     failed_count: int
     error: str = ""
+
+
+class ExportManifestResponse(BaseModel):
+    manifest_id: str
+    project_id: UUID
+    package_version: str
+    checksum: str
+    expires_at: str
+    download_token: str
+
+
+class DeliveryJobResponse(BaseModel):
+    job_id: str
+    project_id: UUID
+    manifest_id: str
+    status: str
+    attempts: int
+    error: str = ""

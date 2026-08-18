@@ -60,3 +60,27 @@ class EvidenceRecord:
     source_rank: int
     notes: str = ""
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+@dataclass
+class ExportManifest:
+    manifest_id: str
+    project_id: str
+    package_version: str
+    checksum: str
+    markdown: str
+    data: dict[str, Any]
+    created_at: datetime
+    expires_at: datetime
+
+
+@dataclass
+class DeliveryJob:
+    job_id: str
+    project_id: str
+    manifest_id: str
+    status: str
+    attempts: int = 0
+    error: str = ""
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))

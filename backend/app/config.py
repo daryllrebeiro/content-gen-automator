@@ -13,6 +13,7 @@ class Settings:
     gemini_model: str
     cors_origins: tuple[str, ...]
     integration_service_token: str
+    export_signing_secret: str
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -35,6 +36,7 @@ class Settings:
             gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
             cors_origins=origins,
             integration_service_token=os.getenv("INTEGRATION_SERVICE_TOKEN", ""),
+            export_signing_secret=os.getenv("EXPORT_SIGNING_SECRET", "development-export-secret"),
         )
 
 

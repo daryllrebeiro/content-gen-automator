@@ -4,7 +4,7 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from typing import Any
-from app.domain.integration import ApprovalEvent, AuditEvent, EvidenceRecord, FactVerificationJob, IdempotencyRecord
+from app.domain.integration import ApprovalEvent, AuditEvent, DeliveryJob, EvidenceRecord, ExportManifest, FactVerificationJob, IdempotencyRecord
 from app.domain.facts import FactStatus
 
 from app.domain.project import Project, ProjectInput, ProjectStatus, VideoPrompt
@@ -28,6 +28,8 @@ class InMemoryProjectRepository:
         self.approval_events: list[ApprovalEvent] = []
         self.fact_jobs: dict[str, FactVerificationJob] = {}
         self.evidence_records: list[EvidenceRecord] = []
+        self.export_manifests: dict[str, ExportManifest] = {}
+        self.delivery_jobs: dict[str, DeliveryJob] = {}
 
     def save(self, project: Project) -> Project:
         self._projects[project.id] = project
@@ -59,6 +61,18 @@ class InMemoryProjectRepository:
 
     def save_evidence(self, evidence: EvidenceRecord) -> None:
         self.evidence_records.append(evidence)
+
+    def save_export_manifest(self, manifest: ExportManifest) -> None:
+        self.export_manifests[manifest.manifest_id] = manifest
+
+    def get_export_manifest(self, manifest_id: str) -> ExportManifest | None:
+        return self.export_manifests.get(manifest_id)
+
+    def save_delivery_job(self, job: DeliveryJob) -> None:
+        self.delivery_jobs[job.job_id] = job
+
+    def get_delivery_job(self, job_id: str) -> DeliveryJob | None:
+        return self.delivery_jobs.get(job_id)
 
 
 class ProjectService:

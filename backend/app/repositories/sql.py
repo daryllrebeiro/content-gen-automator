@@ -14,7 +14,7 @@ from app.domain.project import (
     VideoPrompt,
 )
 from app.domain.facts import FactClaim, FactStatus
-from app.domain.integration import ApprovalEvent, AuditEvent, EvidenceRecord, FactVerificationJob, IdempotencyRecord
+from app.domain.integration import ApprovalEvent, AuditEvent, DeliveryJob, EvidenceRecord, ExportManifest, FactVerificationJob, IdempotencyRecord
 from app.services.project_service import ProjectNotFoundError
 
 
@@ -99,6 +99,32 @@ class EvidenceRecordRow(Base):
     source_rank: Mapped[int] = mapped_column()
     notes: Mapped[str] = mapped_column(String(1000), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class ExportManifestRecord(Base):
+    __tablename__ = "export_manifests"
+
+    manifest_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36))
+    package_version: Mapped[str] = mapped_column(String(50))
+    checksum: Mapped[str] = mapped_column(String(64))
+    markdown: Mapped[str] = mapped_column()
+    data: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class DeliveryJobRecord(Base):
+    __tablename__ = "delivery_jobs"
+
+    job_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36))
+    manifest_id: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(30))
+    attempts: Mapped[int] = mapped_column(default=0)
+    error: Mapped[str] = mapped_column(String(1000), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class SqlProjectRepository:
@@ -214,6 +240,30 @@ class SqlProjectRepository:
             if session.get(EvidenceRecordRow, evidence.evidence_id) is None:
                 session.add(EvidenceRecordRow(evidence_id=evidence.evidence_id, project_id=evidence.project_id, claim_id=evidence.claim_id, url=evidence.url, normalized_url=evidence.normalized_url, source_rank=evidence.source_rank, notes=evidence.notes))
                 session.commit()
+
+    def save_export_manifest(self, manifest: ExportManifest) -> None:
+        with Session(self.engine) as session:
+            session.add(ExportManifestRecord(manifest_id=manifest.manifest_id, project_id=manifest.project_id, package_version=manifest.package_version, checksum=manifest.checksum, markdown=manifest.markdown, data=manifest.data, created_at=manifest.created_at, expires_at=manifest.expires_at))
+            session.commit()
+
+    def get_export_manifest(self, manifest_id: str) -> ExportManifest | None:
+        with Session(self.engine) as session:
+            record = session.get(ExportManifestRecord, manifest_id)
+            if record is None:
+                return None
+            return ExportManifest(record.manifest_id, record.project_id, record.package_version, record.checksum, record.markdown, record.data or {}, record.created_at, record.expires_at)
+
+    def save_delivery_job(self, job: DeliveryJob) -> None:
+        with Session(self.engine) as session:
+            session.add(DeliveryJobRecord(job_id=job.job_id, project_id=job.project_id, manifest_id=job.manifest_id, status=job.status, attempts=job.attempts, error=job.error, created_at=job.created_at, updated_at=job.updated_at))
+            session.commit()
+
+    def get_delivery_job(self, job_id: str) -> DeliveryJob | None:
+        with Session(self.engine) as session:
+            record = session.get(DeliveryJobRecord, job_id)
+            if record is None:
+                return None
+            return DeliveryJob(record.job_id, record.project_id, record.manifest_id, record.status, record.attempts, record.error, record.created_at, record.updated_at)
 
     @staticmethod
     def _to_domain(record: ProjectRecord) -> Project:
