@@ -2,7 +2,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
 
-from app.schemas.health import HealthResponse
+from app.schemas.health import HealthResponse, ReadinessResponse
+from app.config import settings
 from app.schemas.projects import (
     FactResponse,
     ExportResponse,
@@ -28,7 +29,18 @@ export_service = ExportService()
 
 @router.get("/health", response_model=HealthResponse, tags=["system"])
 def health() -> HealthResponse:
-    return HealthResponse(status="ok", service="shorts-prompt-agent")
+    return HealthResponse(status="ok", service="shorts-prompt-agent", environment=settings.app_env)
+
+
+@router.get("/ready", response_model=ReadinessResponse, tags=["system"])
+def readiness() -> ReadinessResponse:
+    repository = project_service.repository
+    if hasattr(repository, "engine"):
+        from sqlalchemy import text
+
+        with repository.engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    return ReadinessResponse(status="ready", repository=settings.project_repository, provider=settings.llm_provider)
 
 
 def _prompt_response(prompt) -> PromptResponse:

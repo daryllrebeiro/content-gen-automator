@@ -10,6 +10,27 @@ services:
     volumes:
       - short_agent_postgres:/var/lib/postgresql/data
 
+  backend:
+    build: ./backend
+    environment:
+      APP_ENV: development
+      PROJECT_REPOSITORY: postgres
+      DATABASE_URL: postgresql+psycopg://short_agent:short_agent@postgres:5432/short_agent
+      LLM_PROVIDER: mock
+      CORS_ORIGINS: http://localhost:3000
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+
+  frontend:
+    build: ./frontend
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
 volumes:
   short_agent_postgres:
-
