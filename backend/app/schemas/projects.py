@@ -35,6 +35,16 @@ class PromptResponse(BaseModel):
     estimated_narration_seconds: float
 
 
+class FactResponse(BaseModel):
+    id: str
+    text: str
+    status: str
+    confidence: float
+    sources: list[str]
+    notes: str
+    approved_for_narration: bool
+
+
 class ProjectResponse(BaseModel):
     id: UUID
     status: str
@@ -45,7 +55,7 @@ class ProjectResponse(BaseModel):
     story_hook: str
     story_central_claim: str
     story_ending: str
+    facts: list[FactResponse]
     scenes: list[SceneResponse]
     continuity: dict
     prompts: list[PromptResponse]
-

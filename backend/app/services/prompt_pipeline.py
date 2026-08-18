@@ -60,7 +60,7 @@ class NarrationWriter:
                 user_prompt=(
                     f"Language: {project.input.language}\nTone: {project.input.tone}\n"
                     f"Scene purpose: {scene.purpose}\nScene summary: {scene.summary}\n"
-                    f"Approved topic facts: {project.input.facts}"
+                    f"Approved topic facts: {project.facts and [fact.text for fact in project.facts if fact.approved_for_narration]}"
                 ),
                 response_schema=NARRATION_SCHEMA,
             )

@@ -3,6 +3,7 @@ import os
 
 from app.domain.project import Project, ProjectInput, ProjectStatus, VideoPrompt
 from app.services.prompt_pipeline import PromptGenerationPipeline, StoryArchitect
+from app.services.fact_engine import FactEngine
 
 
 class ProjectNotFoundError(LookupError):
@@ -32,6 +33,7 @@ class ProjectService:
     def __init__(self, repository: InMemoryProjectRepository | None = None) -> None:
         self.repository = repository or self._default_repository()
         provider = self._default_provider()
+        self.fact_engine = FactEngine()
         self.story_architect = StoryArchitect(provider)
         self.prompt_pipeline = PromptGenerationPipeline(provider)
 
@@ -55,6 +57,7 @@ class ProjectService:
 
     def create(self, project_input: ProjectInput) -> Project:
         project = Project(input=project_input, status=ProjectStatus.INPUT_RECEIVED)
+        self.fact_engine.ingest(project)
         self.story_architect.create(project)
         project.status = ProjectStatus.SCENES_PLANNED
         self.repository.save(project)

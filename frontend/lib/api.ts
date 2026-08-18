@@ -30,6 +30,7 @@ export type Project = {
   story_hook: string;
   story_central_claim: string;
   story_ending: string;
+  facts: { id: string; text: string; status: string; confidence: number; sources: string[]; notes: string; approved_for_narration: boolean }[];
   scenes: { number: number; purpose: string; summary: string; previous_scene_number: number | null }[];
   continuity: {
     animation_style: string;
@@ -63,4 +64,3 @@ export function createProject(input: ProjectInput) {
 export function generatePrompt(projectId: string) {
   return request<Prompt>(`/api/projects/${projectId}/prompts/next`, { method: "POST" });
 }
-

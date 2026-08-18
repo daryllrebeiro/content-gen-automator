@@ -35,6 +35,11 @@ legend { font-size: 14px; font-weight: 700; margin-bottom: 10px; }
 .workspace-intro { padding: 55px 0 28px; }
 .workspace-intro h1 { font-size: clamp(34px, 5vw, 58px); }
 .panel { padding: 20px; }
+.fact-panel { margin-top: 16px; }
+.fact-row { border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 18px; padding: 13px 0; color: var(--muted); font-size: 13px; line-height: 1.4; }
+.fact-approved, .fact-pending { white-space: nowrap; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+.fact-approved { color: var(--accent); }
+.fact-pending { color: #ffcb72; }
 .panel h2 { text-transform: capitalize; }
 .prompt-list { display: grid; gap: 16px; padding: 28px 0; }
 .prompt-card { padding: 22px; }
@@ -46,4 +51,3 @@ pre { background: #0c0c13; border: 1px solid #242433; border-radius: 9px; color:
 .error { color: #ff8f8f; margin: 14px 0; }
 .complete { color: var(--accent); font-weight: 700; }
 @media (max-width: 680px) { .shell { padding: 20px 16px 50px; } .two-col, .lock-grid { grid-template-columns: 1fr; gap: 0; } .duration-row { flex-wrap: wrap; } .duration { min-width: 30%; } .prompt-heading { display: block; } .timing { display: block; margin-top: 12px; } .action-row { align-items: stretch; flex-direction: column; } }
-

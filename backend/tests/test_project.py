@@ -5,6 +5,8 @@ from app.domain.project import ProjectInput, ProjectStatus, scene_count
 from app.services.project_service import InMemoryProjectRepository, ProjectService, ProjectStateError
 from app.services.narration_validator import NarrationValidationError, draft_narration
 from app.services.prompt_validator import validate_prompt
+from app.domain.facts import FactStatus
+from app.services.fact_engine import FactEngine
 from app.services.prompt_pipeline import PromptGenerationPipeline, StoryArchitect
 
 
@@ -114,3 +116,19 @@ def test_real_provider_pipeline_contract_with_structured_fake():
     assert prompt.narration == "One small idea can travel farther than anyone expects."
     assert "VISUAL DIRECTION" not in prompt.text
     assert "CAMERA AND COMPOSITION" in prompt.text
+
+
+def test_fact_engine_is_conservative_without_verified_evidence():
+    project = ProjectInput(
+        topic="Fact safety",
+        facts=["The event happened in 1974."],
+        source_urls=["https://example.com/source"],
+        duration_seconds=10,
+    )
+    from app.domain.project import Project
+
+    domain_project = Project(input=project)
+    claims = FactEngine().ingest(domain_project)
+    assert claims[0].status == FactStatus.SOURCE_PROVIDED
+    assert claims[0].approved_for_narration is False
+    assert FactEngine().approved_facts(domain_project) == []

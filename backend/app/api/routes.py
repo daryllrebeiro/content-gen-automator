@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.schemas.health import HealthResponse
 from app.schemas.projects import (
+    FactResponse,
     ProjectCreateRequest,
     ProjectResponse,
     PromptResponse,
@@ -48,6 +49,18 @@ def _project_response(project) -> ProjectResponse:
         story_hook=project.story_hook,
         story_central_claim=project.story_central_claim,
         story_ending=project.story_ending,
+        facts=[
+            FactResponse(
+                id=fact.id,
+                text=fact.text,
+                status=fact.status.value,
+                confidence=fact.confidence,
+                sources=fact.sources,
+                notes=fact.notes,
+                approved_for_narration=fact.approved_for_narration,
+            )
+            for fact in project.facts
+        ],
         scenes=[SceneResponse(**scene.__dict__) for scene in project.scenes],
         continuity=project.continuity.__dict__,
         prompts=[_prompt_response(prompt) for prompt in project.prompts.values()],

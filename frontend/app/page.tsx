@@ -71,6 +71,7 @@ export default function HomePage() {
           <div className="panel"><p className="eyebrow">CONTINUITY LOCK</p><h2>{project.continuity.animation_style}</h2><p className="muted">{project.continuity.palette}</p><p className="muted">9:16 vertical · {project.continuity.camera_language}</p></div>
           <div className="panel"><p className="eyebrow">VOICE LOCK</p><h2>{project.continuity.voice_id}</h2><p className="muted">{project.continuity.voice_description}</p><p className="muted">Same voice across every scene</p></div>
         </section>
+        {project.facts.length > 0 && <section className="panel fact-panel"><p className="eyebrow">FACT STATUS</p>{project.facts.map((fact) => <div className="fact-row" key={fact.id}><span>{fact.text}</span><span className={fact.approved_for_narration ? "fact-approved" : "fact-pending"}>{fact.status.replace("_", " ")}</span></div>)}</section>}
         <section className="prompt-list">
           {prompts.map((prompt) => <article className="prompt-card" key={prompt.scene_number}><div className="prompt-heading"><div><p className="eyebrow">SCENE {prompt.scene_number}/{prompt.total_scenes}</p><h2>{prompt.narration}</h2></div><span className="timing">{prompt.narration_word_count} words · {prompt.estimated_narration_seconds}s</span></div><pre>{prompt.text}</pre><button className="copy-button" onClick={() => navigator.clipboard.writeText(prompt.text)}>Copy prompt</button></article>)}
         </section>

@@ -3,6 +3,8 @@ from enum import Enum
 from typing import Literal
 from uuid import UUID, uuid4
 
+from app.domain.facts import FactClaim
+
 
 DurationSeconds = Literal[10, 20, 30]
 
@@ -77,4 +79,5 @@ class Project:
     story_ending: str = ""
     scenes: list[Scene] = field(default_factory=list)
     continuity: ContinuityProfile = field(default_factory=ContinuityProfile)
+    facts: list[FactClaim] = field(default_factory=list)
     prompts: dict[int, VideoPrompt] = field(default_factory=dict)

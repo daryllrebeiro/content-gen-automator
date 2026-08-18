@@ -13,6 +13,7 @@ from app.domain.project import (
     Scene,
     VideoPrompt,
 )
+from app.domain.facts import FactClaim, FactStatus
 from app.services.project_service import ProjectNotFoundError
 
 
@@ -31,6 +32,7 @@ class ProjectRecord(Base):
     input_data: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     story_data: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     continuity_data: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    facts_data: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     scenes_data: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     prompts_data: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
@@ -68,6 +70,10 @@ class SqlProjectRepository:
                 "ending": project.story_ending,
             }
             record.continuity_data = project.continuity.__dict__
+            record.facts_data = [
+                {"id": fact.id, "text": fact.text, "status": fact.status.value, "confidence": fact.confidence, "sources": fact.sources, "notes": fact.notes}
+                for fact in project.facts
+            ]
             record.scenes_data = [scene.__dict__ for scene in project.scenes]
             record.prompts_data = [
                 {"scene_number": prompt.scene_number, "total_scenes": prompt.total_scenes, "text": prompt.text, "narration": prompt.narration, "narration_word_count": prompt.narration_word_count, "estimated_narration_seconds": prompt.estimated_narration_seconds}
@@ -97,10 +103,13 @@ class SqlProjectRepository:
         project.story_central_claim = story.get("central_claim", "")
         project.story_ending = story.get("ending", "")
         project.continuity = ContinuityProfile(**(record.continuity_data or {}))
+        project.facts = [
+            FactClaim(id=item["id"], text=item["text"], status=FactStatus(item["status"]), confidence=item.get("confidence", 0.0), sources=item.get("sources", []), notes=item.get("notes", ""))
+            for item in (record.facts_data or [])
+        ]
         project.scenes = [Scene(**scene) for scene in (record.scenes_data or [])]
         project.prompts = {
             item["scene_number"]: VideoPrompt(project_id=project.id, **item)
             for item in (record.prompts_data or [])
         }
         return project
-
