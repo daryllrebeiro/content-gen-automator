@@ -17,6 +17,8 @@ from app.schemas.projects import (
     IntegrationProjectResponse,
     IntegrationPromptResponse,
     IntegrationStatusResponse,
+    ApprovalRequest,
+    ApprovalResponse,
 )
 from app.domain.project import ProjectInput
 from app.services.project_service import (
@@ -280,3 +282,44 @@ def integration_export_project(project_id: UUID, request_id: str | None = Header
     if request_id:
         project_service._audit("integration.project_export", str(project_id), request_id)
     return result
+
+
+def _integration_decide_prompt(project_id: UUID, scene_number: int, decision: str, request: ApprovalRequest, idempotency_key: str, request_id: str | None) -> ApprovalResponse:
+    request_hash = hashlib.sha256(json.dumps({"project_id": str(project_id), "scene_number": scene_number, "decision": decision, **request.model_dump()}, sort_keys=True).encode()).hexdigest()
+    existing = getattr(project_service.repository, "get_idempotency", lambda _: None)(idempotency_key)
+    operation = f"integration.prompts.{decision}"
+    if existing is not None and (existing.operation != operation or existing.request_hash != request_hash):
+        raise HTTPException(status_code=409, detail="Idempotency key was reused with a different request.")
+    try:
+        project = project_service.decide_prompt(project_id, scene_number, decision=decision, actor=request.actor, comment=request.comment)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+    except ProjectStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if existing is None and hasattr(project_service.repository, "save_idempotency"):
+        from app.domain.integration import IdempotencyRecord
+        from datetime import datetime, timezone
+        project_service.repository.save_idempotency(IdempotencyRecord(idempotency_key, operation, request_hash, {"project_id": str(project_id), "scene_number": scene_number, "decision": decision}, datetime.now(timezone.utc)))
+    if request_id:
+        project_service._audit(f"integration.prompt_{decision}", str(project_id), request_id, {"scene_number": scene_number, "actor": request.actor})
+    return ApprovalResponse(project_id=project.id, scene_number=scene_number, decision=decision, status=project.status.value)
+
+
+@router.post(
+    "/api/integrations/projects/{project_id}/prompts/{scene_number}/approve",
+    response_model=ApprovalResponse,
+    tags=["integrations"],
+    dependencies=[Depends(require_integration_auth)],
+)
+def integration_approve_prompt(project_id: UUID, scene_number: int, request: ApprovalRequest, idempotency_key: str = Header(alias="Idempotency-Key"), request_id: str | None = Header(default=None, alias="X-Request-ID")) -> ApprovalResponse:
+    return _integration_decide_prompt(project_id, scene_number, "approved", request, idempotency_key, request_id)
+
+
+@router.post(
+    "/api/integrations/projects/{project_id}/prompts/{scene_number}/reject",
+    response_model=ApprovalResponse,
+    tags=["integrations"],
+    dependencies=[Depends(require_integration_auth)],
+)
+def integration_reject_prompt(project_id: UUID, scene_number: int, request: ApprovalRequest, idempotency_key: str = Header(alias="Idempotency-Key"), request_id: str | None = Header(default=None, alias="X-Request-ID")) -> ApprovalResponse:
+    return _integration_decide_prompt(project_id, scene_number, "rejected", request, idempotency_key, request_id)

@@ -72,7 +72,7 @@ def test_project_generates_prompts_one_at_a_time():
 
     first = service.generate_next(project.id)
     assert first.scene_number == 1
-    assert project.status == ProjectStatus.AWAITING_NEXT
+    assert project.status == ProjectStatus.PROMPT_APPROVAL_PENDING
     assert "exactly 10 seconds" in first.text
     assert "CONTINUITY LOCK — MUST REMAIN IDENTICAL" in first.text
     assert "SCENE / VISUAL STORY" in first.text
@@ -87,10 +87,12 @@ def test_project_generates_prompts_one_at_a_time():
     assert first.estimated_output_tokens > 0
     assert first.estimated_narration_seconds < 9
 
+    service.decide_prompt(project.id, 1, decision="approved", actor="test", comment="Looks good")
     second = service.generate_next(project.id)
+    service.decide_prompt(project.id, 2, decision="approved", actor="test", comment="Looks good")
     third = service.generate_next(project.id)
     assert (second.scene_number, third.scene_number) == (2, 3)
-    assert project.status == ProjectStatus.COMPLETED
+    assert project.status == ProjectStatus.PROMPT_APPROVAL_PENDING
 
 
 def test_next_prompt_is_idempotent_and_cannot_exceed_scene_count():

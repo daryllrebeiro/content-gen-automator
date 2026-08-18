@@ -4,7 +4,7 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from typing import Any
-from app.domain.integration import AuditEvent, IdempotencyRecord
+from app.domain.integration import ApprovalEvent, AuditEvent, IdempotencyRecord
 
 from app.domain.project import Project, ProjectInput, ProjectStatus, VideoPrompt
 from app.services.prompt_pipeline import PromptGenerationPipeline, StoryArchitect
@@ -24,6 +24,7 @@ class InMemoryProjectRepository:
         self._projects: dict[UUID, Project] = {}
         self._idempotency: dict[str, IdempotencyRecord] = {}
         self.audit_events: list[AuditEvent] = []
+        self.approval_events: list[ApprovalEvent] = []
 
     def save(self, project: Project) -> Project:
         self._projects[project.id] = project
@@ -43,6 +44,9 @@ class InMemoryProjectRepository:
 
     def save_audit_event(self, event: AuditEvent) -> None:
         self.audit_events.append(event)
+
+    def save_approval_event(self, event: ApprovalEvent) -> None:
+        self.approval_events.append(event)
 
 
 class ProjectService:
@@ -115,6 +119,8 @@ class ProjectService:
             if project.scenes and project.scenes[-1].number in project.prompts:
                 return project.prompts[project.scenes[-1].number]
             raise ProjectStateError("All prompts have already been generated.")
+        if project.current_scene_number > 0 and project.status != ProjectStatus.APPROVED:
+            raise ProjectStateError("The current prompt must be approved before generating the next scene.")
 
         existing = project.prompts.get(next_number)
         if existing is not None:
@@ -124,13 +130,31 @@ class ProjectService:
         project.prompts[next_number] = prompt
         project.current_scene_number = next_number
         project.status = (
-            ProjectStatus.COMPLETED
-            if next_number == len(project.scenes)
-            else ProjectStatus.AWAITING_NEXT
+            ProjectStatus.PROMPT_APPROVAL_PENDING
         )
         self.repository.save(project)
         self._audit("prompt.generated", str(project.id), metadata={"scene_number": next_number, "version": prompt.version_number})
         return prompt
+
+    def decide_prompt(self, project_id: UUID, scene_number: int, *, decision: str, actor: str, comment: str) -> Project:
+        project = self.repository.get(project_id)
+        if scene_number not in project.prompts:
+            raise ProjectStateError("Generate the prompt before requesting approval.")
+        if scene_number != project.current_scene_number:
+            raise ProjectStateError("Only the current prompt can be approved or rejected.")
+        if decision not in {"approved", "rejected"}:
+            raise ProjectStateError("Decision must be approved or rejected.")
+        if decision == "approved":
+            project.status = ProjectStatus.COMPLETED if scene_number == len(project.scenes) else ProjectStatus.APPROVED
+        else:
+            project.status = ProjectStatus.PROMPT_APPROVAL_PENDING
+        self.repository.save(project)
+        event_id = hashlib.sha256(f"{project.id}:{scene_number}:{decision}:{actor}:{datetime.now(timezone.utc).timestamp()}".encode()).hexdigest()[:24]
+        event = ApprovalEvent(event_id, str(project.id), scene_number, decision, actor, comment, datetime.now(timezone.utc))
+        if hasattr(self.repository, "save_approval_event"):
+            self.repository.save_approval_event(event)
+        self._audit(f"prompt.{decision}", str(project.id), metadata={"scene_number": scene_number, "actor": actor, "comment": comment})
+        return project
 
     def regenerate(self, project_id: UUID, scene_number: int) -> VideoPrompt:
         project = self.repository.get(project_id)

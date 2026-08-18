@@ -19,8 +19,9 @@ class EvaluationService:
             )
             prompts = []
             try:
-                for _ in project.scenes:
+                for scene in project.scenes:
                     prompts.append(service.generate_next(project.id))
+                    service.decide_prompt(project.id, scene.number, decision="approved", actor="evaluation", comment="Automated contract evaluation")
                 scores = [prompt.quality_scores for prompt in prompts]
                 average_scores = {
                     key: round(mean(score[key] for score in scores), 2)
@@ -43,4 +44,3 @@ class EvaluationService:
             "overall_scores": overall_scores,
             "results": results,
         }
-

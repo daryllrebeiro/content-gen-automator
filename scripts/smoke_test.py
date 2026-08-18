@@ -29,10 +29,16 @@ def main() -> None:
     project_id = created.json()["id"]
 
     prompts = []
-    for _ in range(3):
+    for scene_number in range(1, 4):
         response = client.post(f"/api/projects/{project_id}/prompts/next")
         response.raise_for_status()
         prompts.append(response.json())
+        approval = client.post(
+            f"/api/integrations/projects/{project_id}/prompts/{scene_number}/approve",
+            json={"actor": "smoke-test", "comment": "Approved by smoke test."},
+            headers={"Idempotency-Key": f"smoke-approval-{scene_number}"},
+        )
+        approval.raise_for_status()
 
     regenerated = client.post(f"/api/projects/{project_id}/prompts/1/regenerate")
     regenerated.raise_for_status()
@@ -49,4 +55,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

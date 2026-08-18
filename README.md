@@ -72,6 +72,8 @@ $env:DATABASE_URL = "postgresql://..."
 python scripts/migrate.py
 ```
 
+The integration surface requires human approval before the next scene is generated. Use the `approve` or `reject` prompt endpoints with an actor, comment, and idempotency key; decisions are retained in `approval_events`.
+
 ## End-to-end smoke test
 
 With the backend dependencies installed, run from the repository root:

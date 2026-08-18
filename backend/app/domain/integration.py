@@ -25,3 +25,13 @@ class AuditEvent:
     def now(cls, event_id: str, event_type: str, project_id: str | None = None, request_id: str | None = None, metadata: dict[str, Any] | None = None) -> "AuditEvent":
         return cls(event_id, event_type, project_id, request_id, metadata or {}, datetime.now(timezone.utc))
 
+
+@dataclass
+class ApprovalEvent:
+    event_id: str
+    project_id: str
+    scene_number: int
+    decision: str
+    actor: str
+    comment: str
+    created_at: datetime

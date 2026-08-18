@@ -14,7 +14,7 @@ from app.domain.project import (
     VideoPrompt,
 )
 from app.domain.facts import FactClaim, FactStatus
-from app.domain.integration import AuditEvent, IdempotencyRecord
+from app.domain.integration import ApprovalEvent, AuditEvent, IdempotencyRecord
 from app.services.project_service import ProjectNotFoundError
 
 
@@ -59,6 +59,18 @@ class IntegrationEventRecord(Base):
     project_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     request_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
     metadata_data: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class ApprovalEventRecord(Base):
+    __tablename__ = "approval_events"
+
+    event_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36))
+    scene_number: Mapped[int] = mapped_column()
+    decision: Mapped[str] = mapped_column(String(20))
+    actor: Mapped[str] = mapped_column(String(120))
+    comment: Mapped[str] = mapped_column(String(1000), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
@@ -142,6 +154,12 @@ class SqlProjectRepository:
         with Session(self.engine) as session:
             if session.get(IntegrationEventRecord, event.event_id) is None:
                 session.add(IntegrationEventRecord(event_id=event.event_id, event_type=event.event_type, project_id=event.project_id, request_id=event.request_id, metadata_data=event.metadata))
+                session.commit()
+
+    def save_approval_event(self, event: ApprovalEvent) -> None:
+        with Session(self.engine) as session:
+            if session.get(ApprovalEventRecord, event.event_id) is None:
+                session.add(ApprovalEventRecord(event_id=event.event_id, project_id=event.project_id, scene_number=event.scene_number, decision=event.decision, actor=event.actor, comment=event.comment))
                 session.commit()
 
     @staticmethod
