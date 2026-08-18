@@ -33,7 +33,7 @@ class ProjectService:
     def __init__(self, repository: InMemoryProjectRepository | None = None) -> None:
         self.repository = repository or self._default_repository()
         provider = self._default_provider()
-        self.fact_engine = FactEngine()
+        self.fact_engine = FactEngine(checker=provider if hasattr(provider, "verify_claim") else None)
         self.story_architect = StoryArchitect(provider)
         self.prompt_pipeline = PromptGenerationPipeline(provider)
 

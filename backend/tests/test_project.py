@@ -132,3 +132,35 @@ def test_fact_engine_is_conservative_without_verified_evidence():
     assert claims[0].status == FactStatus.SOURCE_PROVIDED
     assert claims[0].approved_for_narration is False
     assert FactEngine().approved_facts(domain_project) == []
+
+
+class FakeFactChecker:
+    def verify_claim(self, claim, source_urls):
+        claim.status = FactStatus.VERIFIED
+        claim.confidence = 0.96
+        claim.sources = source_urls
+        claim.notes = "Verified by the test evidence provider."
+        return claim
+
+
+def test_fact_engine_promotes_claim_only_after_checker_verifies_it():
+    from app.domain.project import Project
+
+    domain_project = Project(input=ProjectInput(topic="Verified fact", facts=["The claim is true."], duration_seconds=10))
+    claims = FactEngine(checker=FakeFactChecker()).ingest(domain_project)
+    assert claims[0].status == FactStatus.VERIFIED
+    assert FactEngine().approved_facts(domain_project) == ["The claim is true."]
+
+
+class FailingFactChecker:
+    def verify_claim(self, claim, source_urls):
+        raise RuntimeError("temporary provider failure")
+
+
+def test_fact_engine_fails_closed_when_evidence_provider_is_unavailable():
+    from app.domain.project import Project
+
+    domain_project = Project(input=ProjectInput(topic="Fallback", facts=["Unknown claim"], duration_seconds=10))
+    claims = FactEngine(checker=FailingFactChecker()).ingest(domain_project)
+    assert claims[0].status == FactStatus.UNCERTAIN
+    assert FactEngine().approved_facts(domain_project) == []
