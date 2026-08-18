@@ -21,6 +21,7 @@ export type Prompt = {
   version_number: number;
   template_version: string;
   why_this_prompt: string[];
+  quality_scores: Record<string, number>;
 };
 
 export type Project = {

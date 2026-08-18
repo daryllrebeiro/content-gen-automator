@@ -36,6 +36,7 @@ class PromptResponse(BaseModel):
     version_number: int = 1
     template_version: str = "prompt_composer_v1"
     why_this_prompt: list[str] = []
+    quality_scores: dict[str, float] = {}
 
 
 class FactResponse(BaseModel):

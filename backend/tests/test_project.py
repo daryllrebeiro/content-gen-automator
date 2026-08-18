@@ -64,6 +64,7 @@ def test_project_generates_prompts_one_at_a_time():
     assert "CAPTIONS" in first.text
     assert "FINAL GENERATION REQUIREMENTS" in first.text
     assert len(first.why_this_prompt) >= 5
+    assert first.quality_scores["overall"] > 0.9
     assert first.estimated_narration_seconds < 9
 
     second = service.generate_next(project.id)

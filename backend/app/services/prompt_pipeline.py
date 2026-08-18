@@ -5,6 +5,7 @@ from app.providers.mock import GLOBAL_POLICY, MockProvider
 from app.providers.schemas import NARRATION_SCHEMA, STORY_SCHEMA, VISUAL_SCHEMA
 from app.services.narration_validator import draft_narration
 from app.services.prompt_validator import validate_prompt
+from app.services.quality_scorer import QualityScorer
 
 
 class StoryArchitect:
@@ -235,6 +236,7 @@ class PromptGenerationPipeline:
         self.narration_writer = NarrationWriter(provider)
         self.visual_director = VisualDirector(provider)
         self.composer = PromptComposer()
+        self.quality_scorer = QualityScorer()
 
     def generate(self, project: Project, scene: Scene) -> VideoPrompt:
         context = GenerationContext(project=project, scene=scene)
@@ -242,4 +244,5 @@ class PromptGenerationPipeline:
         visual = self.visual_director.direct(context)
         prompt = self.composer.compose(context, narration, visual)
         validate_prompt(prompt, context.contract)
+        prompt.quality_scores = self.quality_scorer.score(project, prompt)
         return prompt

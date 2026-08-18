@@ -42,6 +42,7 @@ def _prompt_response(prompt) -> PromptResponse:
         version_number=prompt.version_number,
         template_version=prompt.template_version,
         why_this_prompt=prompt.why_this_prompt,
+        quality_scores=prompt.quality_scores,
     )
 
 
