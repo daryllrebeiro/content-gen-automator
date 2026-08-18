@@ -84,3 +84,33 @@ class DeliveryJob:
     error: str = ""
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+@dataclass
+class ProductionJob:
+    job_id: str
+    project_id: str
+    scene_number: int
+    prompt_version: int
+    job_type: str
+    provider: str
+    provider_job_id: str
+    status: str
+    contract: dict[str, Any]
+    artifact_id: str = ""
+    error: str = ""
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+@dataclass
+class ClipArtifact:
+    artifact_id: str
+    job_id: str
+    checksum: str
+    duration_seconds: float
+    aspect_ratio: str
+    narration_end_seconds: float
+    artifact_url: str
+    review_status: str = "VIDEO_REVIEW_PENDING"
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))

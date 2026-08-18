@@ -4,7 +4,7 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from typing import Any
-from app.domain.integration import ApprovalEvent, AuditEvent, DeliveryJob, EvidenceRecord, ExportManifest, FactVerificationJob, IdempotencyRecord
+from app.domain.integration import ApprovalEvent, AuditEvent, ClipArtifact, DeliveryJob, EvidenceRecord, ExportManifest, FactVerificationJob, IdempotencyRecord, ProductionJob
 from app.domain.facts import FactStatus
 
 from app.domain.project import Project, ProjectInput, ProjectStatus, VideoPrompt
@@ -30,6 +30,8 @@ class InMemoryProjectRepository:
         self.evidence_records: list[EvidenceRecord] = []
         self.export_manifests: dict[str, ExportManifest] = {}
         self.delivery_jobs: dict[str, DeliveryJob] = {}
+        self.production_jobs: dict[str, ProductionJob] = {}
+        self.clip_artifacts: dict[str, ClipArtifact] = {}
 
     def save(self, project: Project) -> Project:
         self._projects[project.id] = project
@@ -73,6 +75,18 @@ class InMemoryProjectRepository:
 
     def get_delivery_job(self, job_id: str) -> DeliveryJob | None:
         return self.delivery_jobs.get(job_id)
+
+    def save_production_job(self, job: ProductionJob) -> None:
+        self.production_jobs[job.job_id] = job
+
+    def get_production_job(self, job_id: str) -> ProductionJob | None:
+        return self.production_jobs.get(job_id)
+
+    def get_production_for_prompt(self, project_id: str, scene_number: int, prompt_version: int) -> ProductionJob | None:
+        return next((job for job in self.production_jobs.values() if job.project_id == project_id and job.scene_number == scene_number and job.prompt_version == prompt_version), None)
+
+    def save_clip_artifact(self, artifact: ClipArtifact) -> None:
+        self.clip_artifacts[artifact.artifact_id] = artifact
 
 
 class ProjectService:

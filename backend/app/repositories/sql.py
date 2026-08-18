@@ -14,7 +14,7 @@ from app.domain.project import (
     VideoPrompt,
 )
 from app.domain.facts import FactClaim, FactStatus
-from app.domain.integration import ApprovalEvent, AuditEvent, DeliveryJob, EvidenceRecord, ExportManifest, FactVerificationJob, IdempotencyRecord
+from app.domain.integration import ApprovalEvent, AuditEvent, ClipArtifact, DeliveryJob, EvidenceRecord, ExportManifest, FactVerificationJob, IdempotencyRecord, ProductionJob
 from app.services.project_service import ProjectNotFoundError
 
 
@@ -125,6 +125,38 @@ class DeliveryJobRecord(Base):
     error: Mapped[str] = mapped_column(String(1000), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ProductionJobRecord(Base):
+    __tablename__ = "provider_jobs"
+
+    job_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36))
+    scene_number: Mapped[int] = mapped_column()
+    prompt_version: Mapped[int] = mapped_column()
+    job_type: Mapped[str] = mapped_column(String(30))
+    provider: Mapped[str] = mapped_column(String(100))
+    provider_job_id: Mapped[str] = mapped_column(String(200))
+    status: Mapped[str] = mapped_column(String(30))
+    contract: Mapped[dict[str, Any]] = mapped_column(JSON)
+    artifact_id: Mapped[str] = mapped_column(String(64), default="")
+    error: Mapped[str] = mapped_column(String(1000), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ClipArtifactRecord(Base):
+    __tablename__ = "clip_artifacts"
+
+    artifact_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    job_id: Mapped[str] = mapped_column(String(64))
+    checksum: Mapped[str] = mapped_column(String(64))
+    duration_seconds: Mapped[float] = mapped_column()
+    aspect_ratio: Mapped[str] = mapped_column(String(20))
+    narration_end_seconds: Mapped[float] = mapped_column()
+    artifact_url: Mapped[str] = mapped_column(String(2000))
+    review_status: Mapped[str] = mapped_column(String(40))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class SqlProjectRepository:
@@ -264,6 +296,38 @@ class SqlProjectRepository:
             if record is None:
                 return None
             return DeliveryJob(record.job_id, record.project_id, record.manifest_id, record.status, record.attempts, record.error, record.created_at, record.updated_at)
+
+    def save_production_job(self, job: ProductionJob) -> None:
+        with Session(self.engine) as session:
+            record = session.get(ProductionJobRecord, job.job_id)
+            if record is None:
+                record = ProductionJobRecord(job_id=job.job_id, project_id=job.project_id, scene_number=job.scene_number, prompt_version=job.prompt_version, job_type=job.job_type, provider=job.provider, provider_job_id=job.provider_job_id, status=job.status, contract=job.contract, created_at=job.created_at, updated_at=job.updated_at)
+                session.add(record)
+            record.status = job.status
+            record.artifact_id = job.artifact_id
+            record.error = job.error
+            record.updated_at = job.updated_at
+            session.commit()
+
+    def get_production_job(self, job_id: str) -> ProductionJob | None:
+        with Session(self.engine) as session:
+            record = session.get(ProductionJobRecord, job_id)
+            if record is None:
+                return None
+            return ProductionJob(record.job_id, record.project_id, record.scene_number, record.prompt_version, record.job_type, record.provider, record.provider_job_id, record.status, record.contract or {}, record.artifact_id, record.error, record.created_at, record.updated_at)
+
+    def get_production_for_prompt(self, project_id: str, scene_number: int, prompt_version: int) -> ProductionJob | None:
+        with Session(self.engine) as session:
+            record = session.scalar(select(ProductionJobRecord).where(ProductionJobRecord.project_id == project_id, ProductionJobRecord.scene_number == scene_number, ProductionJobRecord.prompt_version == prompt_version))
+            if record is None:
+                return None
+            return ProductionJob(record.job_id, record.project_id, record.scene_number, record.prompt_version, record.job_type, record.provider, record.provider_job_id, record.status, record.contract or {}, record.artifact_id, record.error, record.created_at, record.updated_at)
+
+    def save_clip_artifact(self, artifact: ClipArtifact) -> None:
+        with Session(self.engine) as session:
+            if session.get(ClipArtifactRecord, artifact.artifact_id) is None:
+                session.add(ClipArtifactRecord(artifact_id=artifact.artifact_id, job_id=artifact.job_id, checksum=artifact.checksum, duration_seconds=artifact.duration_seconds, aspect_ratio=artifact.aspect_ratio, narration_end_seconds=artifact.narration_end_seconds, artifact_url=artifact.artifact_url, review_status=artifact.review_status, created_at=artifact.created_at))
+                session.commit()
 
     @staticmethod
     def _to_domain(record: ProjectRecord) -> Project:

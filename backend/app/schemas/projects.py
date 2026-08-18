@@ -144,3 +144,17 @@ class DeliveryJobResponse(BaseModel):
     status: str
     attempts: int
     error: str = ""
+
+
+class ProductionJobResponse(BaseModel):
+    job_id: str
+    project_id: UUID
+    scene_number: int
+    prompt_version: int
+    job_type: str
+    provider: str
+    provider_job_id: str
+    status: str
+    contract: dict
+    artifact_id: str = ""
+    error: str = ""

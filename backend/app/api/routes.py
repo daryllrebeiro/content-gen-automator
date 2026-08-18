@@ -22,6 +22,7 @@ from app.schemas.projects import (
     FactVerificationResponse,
     DeliveryJobResponse,
     ExportManifestResponse,
+    ProductionJobResponse,
 )
 from app.domain.project import ProjectInput
 from app.services.project_service import (
@@ -32,12 +33,14 @@ from app.services.project_service import (
 from app.services.export_service import ExportService
 from app.api.integration_auth import require_integration_auth
 from app.services.delivery_service import DeliveryService
+from app.services.production_service import ProductionService
 
 
 router = APIRouter()
 project_service = ProjectService()
 export_service = ExportService()
 delivery_service = DeliveryService()
+production_service = ProductionService()
 
 
 @router.get("/health", response_model=HealthResponse, tags=["system"])
@@ -442,3 +445,70 @@ def integration_queue_delivery(project_id: UUID, manifest_id: str, idempotency_k
         from datetime import datetime, timezone
         project_service.repository.save_idempotency(IdempotencyRecord(idempotency_key, "integration.delivery", request_hash, {"job_id": job.job_id}, datetime.now(timezone.utc)))
     return DeliveryJobResponse(job_id=job.job_id, project_id=project_id, manifest_id=job.manifest_id, status=job.status, attempts=job.attempts, error=job.error)
+
+
+def _production_response(job) -> ProductionJobResponse:
+    return ProductionJobResponse(job_id=job.job_id, project_id=UUID(job.project_id), scene_number=job.scene_number, prompt_version=job.prompt_version, job_type=job.job_type, provider=job.provider, provider_job_id=job.provider_job_id, status=job.status, contract=job.contract, artifact_id=job.artifact_id, error=job.error)
+
+
+@router.post(
+    "/api/integrations/projects/{project_id}/scenes/{scene_number}/production",
+    response_model=ProductionJobResponse,
+    tags=["integrations"],
+    dependencies=[Depends(require_integration_auth)],
+)
+def integration_submit_production(project_id: UUID, scene_number: int, idempotency_key: str = Header(alias="Idempotency-Key"), request_id: str | None = Header(default=None, alias="X-Request-ID")) -> ProductionJobResponse:
+    request_hash = hashlib.sha256(f"integration.production:{project_id}:{scene_number}".encode()).hexdigest()
+    existing = getattr(project_service.repository, "get_idempotency", lambda _: None)(idempotency_key)
+    if existing is not None and (existing.operation != "integration.production" or existing.request_hash != request_hash):
+        raise HTTPException(status_code=409, detail="Idempotency key was reused with a different request.")
+    try:
+        project = project_service.repository.get(project_id)
+        if project.status not in {project.status.APPROVED, project.status.COMPLETED}:
+            raise ProjectStateError("Approve the prompt before submitting production.")
+        job = project_service.repository.get_production_job(existing.response["job_id"]) if existing is not None and hasattr(project_service.repository, "get_production_job") else None
+        if job is None:
+            job = production_service.submit_clip(project, scene_number, project_service.repository)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+    except ProjectStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if existing is None and hasattr(project_service.repository, "save_idempotency"):
+        from app.domain.integration import IdempotencyRecord
+        from datetime import datetime, timezone
+        project_service.repository.save_idempotency(IdempotencyRecord(idempotency_key, "integration.production", request_hash, {"job_id": job.job_id}, datetime.now(timezone.utc)))
+    if request_id:
+        project_service._audit("integration.production_submitted", str(project_id), request_id, {"job_id": job.job_id, "scene_number": scene_number, "prompt_version": job.prompt_version})
+    return _production_response(job)
+
+
+@router.get(
+    "/api/integrations/production-jobs/{job_id}",
+    response_model=ProductionJobResponse,
+    tags=["integrations"],
+    dependencies=[Depends(require_integration_auth)],
+)
+def integration_production_status(job_id: str) -> ProductionJobResponse:
+    job = getattr(project_service.repository, "get_production_job", lambda _: None)(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Production job not found")
+    return _production_response(job)
+
+
+@router.post(
+    "/api/integrations/production-jobs/{job_id}/callback",
+    response_model=ProductionJobResponse,
+    tags=["integrations"],
+    dependencies=[Depends(require_integration_auth)],
+)
+def integration_production_callback(job_id: str, payload: dict) -> ProductionJobResponse:
+    job = getattr(project_service.repository, "get_production_job", lambda _: None)(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Production job not found")
+    try:
+        job = production_service.complete_callback(job, payload, project_service.repository)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return _production_response(job)
