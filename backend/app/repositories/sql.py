@@ -14,7 +14,7 @@ from app.domain.project import (
     VideoPrompt,
 )
 from app.domain.facts import FactClaim, FactStatus
-from app.domain.integration import ApprovalEvent, AuditEvent, ClipArtifact, DeliveryJob, EvidenceRecord, ExportManifest, FactVerificationJob, IdempotencyRecord, ProductionJob
+from app.domain.integration import ApprovalEvent, AuditEvent, ClipArtifact, ClipReviewEvent, DeliveryJob, EvidenceRecord, ExportManifest, FactVerificationJob, FinalReviewEvent, IdempotencyRecord, ProductionJob, YouTubeUploadJob
 from app.services.project_service import ProjectNotFoundError
 
 
@@ -157,6 +157,49 @@ class ClipArtifactRecord(Base):
     artifact_url: Mapped[str] = mapped_column(String(2000))
     review_status: Mapped[str] = mapped_column(String(40))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ClipReviewEventRecord(Base):
+    __tablename__ = "clip_review_events"
+
+    event_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36))
+    scene_number: Mapped[int] = mapped_column()
+    artifact_id: Mapped[str] = mapped_column(String(64))
+    decision: Mapped[str] = mapped_column(String(20))
+    actor: Mapped[str] = mapped_column(String(200))
+    comment: Mapped[str] = mapped_column(String(1000), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class FinalReviewEventRecord(Base):
+    __tablename__ = "final_review_events"
+
+    event_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36))
+    manifest_id: Mapped[str] = mapped_column(String(64))
+    decision: Mapped[str] = mapped_column(String(20))
+    actor: Mapped[str] = mapped_column(String(200))
+    comment: Mapped[str] = mapped_column(String(2000), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class YouTubeUploadJobRecord(Base):
+    __tablename__ = "youtube_upload_jobs"
+
+    job_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String(36))
+    manifest_id: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(30))
+    youtube_video_id: Mapped[str] = mapped_column(String(50), default="")
+    upload_attempts: Mapped[int] = mapped_column(default=0)
+    error_class: Mapped[str] = mapped_column(String(50), default="")
+    upload_checksum: Mapped[str] = mapped_column(String(64))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    youtube_url: Mapped[str] = mapped_column(String(500), default="")
+    error: Mapped[str] = mapped_column(String(1000), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class SqlProjectRepository:
@@ -325,9 +368,115 @@ class SqlProjectRepository:
 
     def save_clip_artifact(self, artifact: ClipArtifact) -> None:
         with Session(self.engine) as session:
-            if session.get(ClipArtifactRecord, artifact.artifact_id) is None:
+            record = session.get(ClipArtifactRecord, artifact.artifact_id)
+            if record is None:
                 session.add(ClipArtifactRecord(artifact_id=artifact.artifact_id, job_id=artifact.job_id, checksum=artifact.checksum, duration_seconds=artifact.duration_seconds, aspect_ratio=artifact.aspect_ratio, narration_end_seconds=artifact.narration_end_seconds, artifact_url=artifact.artifact_url, review_status=artifact.review_status, created_at=artifact.created_at))
+            else:
+                record.review_status = artifact.review_status
+            session.commit()
+
+    def get_clip_artifact(self, artifact_id: str) -> ClipArtifact | None:
+        with Session(self.engine) as session:
+            record = session.get(ClipArtifactRecord, artifact_id)
+            if record is None:
+                return None
+            return ClipArtifact(record.artifact_id, record.job_id, record.checksum, record.duration_seconds, record.aspect_ratio, record.narration_end_seconds, record.artifact_url, record.review_status, record.created_at)
+
+    def get_clip_artifacts_for_project(self, project_id: str) -> list[ClipArtifact]:
+        with Session(self.engine) as session:
+            from sqlalchemy import select as sa_select
+            job_ids = [
+                row.job_id
+                for row in session.scalars(
+                    sa_select(ProductionJobRecord.job_id).where(ProductionJobRecord.project_id == project_id)
+                )
+            ]
+            records = session.scalars(
+                sa_select(ClipArtifactRecord).where(ClipArtifactRecord.job_id.in_(job_ids))
+            ).all()
+            return [ClipArtifact(r.artifact_id, r.job_id, r.checksum, r.duration_seconds, r.aspect_ratio, r.narration_end_seconds, r.artifact_url, r.review_status, r.created_at) for r in records]
+
+    def save_clip_review_event(self, event: ClipReviewEvent) -> None:
+        with Session(self.engine) as session:
+            if session.get(ClipReviewEventRecord, event.event_id) is None:
+                session.add(ClipReviewEventRecord(event_id=event.event_id, project_id=event.project_id, scene_number=event.scene_number, artifact_id=event.artifact_id, decision=event.decision, actor=event.actor, comment=event.comment, created_at=event.created_at))
                 session.commit()
+
+    def save_final_review_event(self, event: FinalReviewEvent) -> None:
+        with Session(self.engine) as session:
+            if session.get(FinalReviewEventRecord, event.event_id) is None:
+                session.add(FinalReviewEventRecord(event_id=event.event_id, project_id=event.project_id, manifest_id=event.manifest_id, decision=event.decision, actor=event.actor, comment=event.comment, created_at=event.created_at))
+                session.commit()
+
+    def get_latest_final_review(self, project_id: str) -> FinalReviewEvent | None:
+        with Session(self.engine) as session:
+            from sqlalchemy import select as sa_select
+            record = session.scalar(
+                sa_select(FinalReviewEventRecord)
+                .where(FinalReviewEventRecord.project_id == project_id)
+                .order_by(FinalReviewEventRecord.created_at.desc())
+                .limit(1)
+            )
+            if record is None:
+                return None
+            return FinalReviewEvent(record.event_id, record.project_id, record.manifest_id, record.decision, record.actor, record.comment, record.created_at)
+
+    def get_latest_export_manifest(self, project_id: str) -> ExportManifest | None:
+        with Session(self.engine) as session:
+            from sqlalchemy import select as sa_select
+            record = session.scalar(
+                sa_select(ExportManifestRecord)
+                .where(ExportManifestRecord.project_id == project_id)
+                .order_by(ExportManifestRecord.created_at.desc())
+                .limit(1)
+            )
+            if record is None:
+                return None
+            return ExportManifest(record.manifest_id, record.project_id, record.package_version, record.checksum, record.markdown, record.data or {}, record.created_at, record.expires_at)
+
+    def save_youtube_upload_job(self, job: YouTubeUploadJob) -> None:
+        with Session(self.engine) as session:
+            record = session.get(YouTubeUploadJobRecord, job.job_id)
+            if record is None:
+                record = YouTubeUploadJobRecord(job_id=job.job_id, project_id=job.project_id, manifest_id=job.manifest_id, status=job.status, upload_checksum=job.upload_checksum, created_at=job.created_at, updated_at=job.updated_at)
+                session.add(record)
+            record.status = job.status
+            record.youtube_video_id = job.youtube_video_id
+            record.upload_attempts = job.upload_attempts
+            record.error_class = job.error_class
+            record.youtube_url = job.youtube_url
+            record.error = job.error
+            record.published_at = job.published_at
+            record.updated_at = job.updated_at
+            session.commit()
+
+    def get_youtube_upload_job(self, job_id: str) -> YouTubeUploadJob | None:
+        with Session(self.engine) as session:
+            record = session.get(YouTubeUploadJobRecord, job_id)
+            if record is None:
+                return None
+            return YouTubeUploadJob(record.job_id, record.project_id, record.manifest_id, record.status, record.upload_checksum, record.youtube_video_id, record.upload_attempts, record.error_class, record.published_at, record.youtube_url, record.error, record.created_at, record.updated_at)
+
+    def get_active_upload_job(self, project_id: str) -> YouTubeUploadJob | None:
+        with Session(self.engine) as session:
+            from sqlalchemy import select as sa_select
+            record = session.scalar(
+                sa_select(YouTubeUploadJobRecord)
+                .where(YouTubeUploadJobRecord.project_id == project_id, YouTubeUploadJobRecord.status == "UPLOADING")
+                .limit(1)
+            )
+            if record is None:
+                return None
+            return YouTubeUploadJob(record.job_id, record.project_id, record.manifest_id, record.status, record.upload_checksum, record.youtube_video_id, record.upload_attempts, record.error_class, record.published_at, record.youtube_url, record.error, record.created_at, record.updated_at)
+
+    def get_approval_events_for_project(self, project_id: str) -> list:
+        with Session(self.engine) as session:
+            from sqlalchemy import select as sa_select
+            from app.domain.integration import ApprovalEvent as AE
+            records = session.scalars(
+                sa_select(ApprovalEventRecord).where(ApprovalEventRecord.project_id == project_id)
+            ).all()
+            return [AE(r.event_id, r.project_id, r.scene_number, r.decision, r.actor, r.comment, r.created_at) for r in records]
 
     @staticmethod
     def _to_domain(record: ProjectRecord) -> Project:

@@ -1,0 +1,11 @@
+{
+  "name": "shorts_error_handler_dev",
+  "active": false,
+  "nodes": [
+    {"name": "Error Trigger", "type": "n8n-nodes-base.errorTrigger", "parameters": {}},
+    {"name": "Log Error", "type": "n8n-nodes-base.httpRequest", "parameters": {"method": "POST", "url": "https://httpbin.org/post", "sendBody": true, "jsonBody": "={ \"failed_node\": \"{{$json.execution.error.node.name}}\", \"workflow_id\": \"{{$json.workflow.id}}\", \"error_message\": \"{{$json.execution.error.message}}\" }"}}
+  ],
+  "connections": {
+    "Error Trigger": {"main": [[{"node": "Log Error", "type": "main", "index": 0}]]}
+  }
+}

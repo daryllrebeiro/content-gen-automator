@@ -114,3 +114,43 @@ class ClipArtifact:
     artifact_url: str
     review_status: str = "VIDEO_REVIEW_PENDING"
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+@dataclass
+class ClipReviewEvent:
+    event_id: str
+    project_id: str
+    scene_number: int
+    artifact_id: str
+    decision: str
+    actor: str
+    comment: str
+    created_at: datetime
+
+
+@dataclass
+class FinalReviewEvent:
+    event_id: str
+    project_id: str
+    manifest_id: str
+    decision: str
+    actor: str
+    comment: str
+    created_at: datetime
+
+
+@dataclass
+class YouTubeUploadJob:
+    job_id: str
+    project_id: str
+    manifest_id: str
+    status: str
+    upload_checksum: str
+    youtube_video_id: str = ""
+    upload_attempts: int = 0
+    error_class: str = ""
+    published_at: datetime | None = None
+    youtube_url: str = ""
+    error: str = ""
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))

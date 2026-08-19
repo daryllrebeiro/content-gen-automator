@@ -4,7 +4,7 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from typing import Any
-from app.domain.integration import ApprovalEvent, AuditEvent, ClipArtifact, DeliveryJob, EvidenceRecord, ExportManifest, FactVerificationJob, IdempotencyRecord, ProductionJob
+from app.domain.integration import ApprovalEvent, AuditEvent, ClipArtifact, ClipReviewEvent, DeliveryJob, EvidenceRecord, ExportManifest, FactVerificationJob, FinalReviewEvent, IdempotencyRecord, ProductionJob, YouTubeUploadJob
 from app.domain.facts import FactStatus
 
 from app.domain.project import Project, ProjectInput, ProjectStatus, VideoPrompt
@@ -32,6 +32,9 @@ class InMemoryProjectRepository:
         self.delivery_jobs: dict[str, DeliveryJob] = {}
         self.production_jobs: dict[str, ProductionJob] = {}
         self.clip_artifacts: dict[str, ClipArtifact] = {}
+        self.clip_review_events: list[ClipReviewEvent] = []
+        self.final_review_events: list[FinalReviewEvent] = []
+        self.youtube_upload_jobs: dict[str, YouTubeUploadJob] = {}
 
     def save(self, project: Project) -> Project:
         self._projects[project.id] = project
@@ -87,6 +90,42 @@ class InMemoryProjectRepository:
 
     def save_clip_artifact(self, artifact: ClipArtifact) -> None:
         self.clip_artifacts[artifact.artifact_id] = artifact
+
+    def get_clip_artifact(self, artifact_id: str) -> ClipArtifact | None:
+        return self.clip_artifacts.get(artifact_id)
+
+    def get_clip_artifacts_for_project(self, project_id: str) -> list[ClipArtifact]:
+        job_ids = {job.job_id for job in self.production_jobs.values() if job.project_id == project_id}
+        return [a for a in self.clip_artifacts.values() if a.job_id in job_ids]
+
+    def save_clip_review_event(self, event: ClipReviewEvent) -> None:
+        self.clip_review_events.append(event)
+
+    def save_final_review_event(self, event: FinalReviewEvent) -> None:
+        self.final_review_events.append(event)
+
+    def get_latest_final_review(self, project_id: str) -> FinalReviewEvent | None:
+        reviews = [ev for ev in self.final_review_events if ev.project_id == project_id]
+        return reviews[-1] if reviews else None
+
+    def get_latest_export_manifest(self, project_id: str) -> ExportManifest | None:
+        manifests = [m for m in self.export_manifests.values() if m.project_id == project_id]
+        return max(manifests, key=lambda m: m.created_at, default=None)
+
+    def save_youtube_upload_job(self, job: YouTubeUploadJob) -> None:
+        self.youtube_upload_jobs[job.job_id] = job
+
+    def get_youtube_upload_job(self, job_id: str) -> YouTubeUploadJob | None:
+        return self.youtube_upload_jobs.get(job_id)
+
+    def get_active_upload_job(self, project_id: str) -> YouTubeUploadJob | None:
+        return next(
+            (j for j in self.youtube_upload_jobs.values() if j.project_id == project_id and j.status == "UPLOADING"),
+            None,
+        )
+
+    def get_approval_events_for_project(self, project_id: str) -> list:
+        return [ev for ev in self.approval_events if ev.project_id == project_id]
 
 
 class ProjectService:

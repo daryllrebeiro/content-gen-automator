@@ -1,25 +1,45 @@
-# Animated YouTube Shorts Prompt Agent
+# Animated YouTube Shorts Prompt Agent & Automation Engine
 
-Stateful AI orchestration for creating consistent, animated YouTube Shorts prompts.
+Stateful AI orchestration for creating consistent, animated YouTube Shorts, featuring full publishing validation, asset auditing, and YouTube publication gates.
 
-The MVP accepts a video idea and creates one to three connected prompts. Each prompt represents one ten-second, 9:16 animated clip. The system preserves a shared story, visual style, characters, narration voice, safety policy, and production contract across every scene.
+## Project Architecture
 
-## Current status
+```text
+       Frontend (Next.js)          n8n (Orchestration)
+              │                           │
+              └──────────┬────────────────┘
+                         ▼
+                FastAPI Agent API
+         ┌───────────────┼───────────────┐
+         ▼               ▼               ▼
+   PostgreSQL      LLM Provider     Fact Engine
+```
 
-The repository is scaffolded for the foundation milestone. The backend currently exposes a health endpoint and the domain layer contains the first duration and project-state rules.
+The system accepts a topic and optional fact inputs, plans a multi-scene storyboard, locks the visual style and voice profile (continuity locks), generates narration scripts and video-generation prompts, submits clips to rendering engines, audits the rendered assets, signs off on metadata, and publishes to YouTube.
 
-See [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) for the complete product and engineering plan.
+---
 
-## Planned stack
+## Current Status (Phase 8 Complete)
 
-- Frontend: Next.js, React, TypeScript
-- Backend: Python, FastAPI, Pydantic
-- Persistence: PostgreSQL
-- Initial provider: deterministic mock provider for local development and tests
+The system is fully developed through **Phase 8 (Publishing Automation)**:
+1. **Interactive Frontend Workflow Dashboard:** A modern dark-mode dashboard handling prompt approval, asynchronous video render queuing, mock video rendering simulation, clip verification, publishing metadata sign-off, safety gate checks, and YouTube publishing status tracking.
+2. **Robust Backend API:** Complete integration routes, idempotency checks, event-based auditing, fact checking, export delivery, production callbacks, and YouTube upload status machines.
+3. **Fail-Closed Publishing Gate:** Enforces 7 safety and completeness checks in the API layer before video delivery is permitted.
 
-## Local setup
+---
 
-### Backend
+## Local Setup & Development
+
+### 1. Database Setup
+
+Ensure PostgreSQL is running and set your database connection string in your environment:
+```powershell
+$env:DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/contentgen"
+$env:PROJECT_REPOSITORY = "postgres" # or "memory" for in-memory DB
+python scripts/migrate.py
+```
+
+### 2. Start the Backend API
 
 ```powershell
 cd backend
@@ -29,58 +49,37 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-Then open `http://127.0.0.1:8000/health`.
+The API will be available at `http://127.0.0.1:8000`. You can inspect the interactive OpenAPI documentation at `http://127.0.0.1:8000/docs`.
 
-The Gemini provider is available behind the provider abstraction. The mock provider remains the default for local development and tests.
+### 3. Start the Frontend Dashboard
 
-To enable the Gemini adapter after installing dependencies, set:
-
-```text
-LLM_PROVIDER=gemini
-GEMINI_API_KEY=your-key
-GEMINI_MODEL=gemini-2.5-flash
-```
-
-The default remains `mock`, so local development and tests do not require an API key.
-
-Provider hardening controls are available for deployed Gemini usage:
-
-```text
-PROVIDER_MAX_ATTEMPTS=3
-PROVIDER_TIMEOUT_SECONDS=30
-```
-
-Transient provider failures are retried within these bounds. Permanent failures and unrepaired structured output fail closed before project or prompt persistence.
-
-## n8n integration foundation
-
-Phase 1 exposes an integration-safe project creation endpoint:
-
-```text
-POST /api/integrations/projects
-Idempotency-Key: <stable-workflow-key>
-X-Request-ID: <optional-correlation-id>
-Authorization: Bearer <INTEGRATION_SERVICE_TOKEN>
-```
-
-The endpoint returns a stable `project_id` on retries. Reusing a key with a different payload returns `409`. In development, authentication is open when `INTEGRATION_SERVICE_TOKEN` is empty; set the token in staging and production. Reliability records are persisted in PostgreSQL by migration `database/migrations/002_reliability.sql`.
-
-Apply migrations in a deployed environment with:
+Ensure Node.js is installed. From the `frontend` directory:
 
 ```powershell
-$env:DATABASE_URL = "postgresql://..."
-python scripts/migrate.py
+cd frontend
+pnpm install # or npm install
+npm run dev
 ```
 
-The integration surface requires human approval before the next scene is generated. Use the `approve` or `reject` prompt endpoints with an actor, comment, and idempotency key; decisions are retained in `approval_events`.
+Open `http://localhost:3000` to access the creative dashboard.
 
-## End-to-end smoke test
+### 4. Running Tests
 
-With the backend dependencies installed, run from the repository root:
+Run the complete test suite (50+ assertions covering storyboards, continuity, evidence gathering, reliability keys, clip reviews, final reviews, and publishing gates):
 
 ```powershell
-$env:PYTHONPATH = "backend"
-python scripts/smoke_test.py
+cd backend
+py -m pytest tests/ -v
 ```
 
-The smoke test exercises readiness, project creation, all three prompts, scoped regeneration, and export. To exercise Gemini, set `LLM_PROVIDER=gemini` and `GEMINI_API_KEY` first.
+---
+
+## n8n Integration Workflows
+
+The `n8n/workflows/` directory contains complete workflow templates for orchestrating dev tasks:
+- `shorts_create_project_dev.json` — Initial project creation and Scene 1 prompt generation.
+- `shorts_generate_next_dev.json` — Automates prompt loop execution on approvals.
+- `shorts_notify_dev.json` — Human-in-the-loop alert routing.
+- `shorts_publish_dev.json` — Orchestrates asset downloads, mock YouTube upload integrations, and API callback updates.
+- `shorts_error_handler_dev.json` — Global pipeline failure catching.
+

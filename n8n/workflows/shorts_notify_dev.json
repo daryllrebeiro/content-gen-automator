@@ -1,0 +1,11 @@
+{
+  "name": "shorts_notify_dev",
+  "active": false,
+  "nodes": [
+    {"name": "Webhook", "type": "n8n-nodes-base.webhook", "parameters": {"path": "shorts/notify", "httpMethod": "POST"}},
+    {"name": "Notify Reviewer", "type": "n8n-nodes-base.httpRequest", "parameters": {"method": "POST", "url": "https://httpbin.org/post", "sendBody": true, "jsonBody": "={ \"alert\": \"Short Project {{$json.project_id}} scene {{$json.scene_number}} prompt awaits human review. Please sign off in dashboard.\", \"details\": {{$json}} }"}}
+  ],
+  "connections": {
+    "Webhook": {"main": [[{"node": "Notify Reviewer", "type": "main", "index": 0}]]}
+  }
+}

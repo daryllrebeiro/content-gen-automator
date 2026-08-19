@@ -1,18 +1,28 @@
 from uuid import UUID, uuid4
 import hashlib
 import json
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 
 from app.schemas.health import HealthResponse, ReadinessResponse
 from app.config import settings
 from app.schemas.projects import (
+    ClipReviewRequest,
+    ClipReviewResponse,
     FactResponse,
     ExportResponse,
+    FinalReviewRequest,
+    FinalReviewResponse,
+    FinalReviewStatusResponse,
+    GateReportResponse,
+    MetadataValidationResponse,
     ProjectCreateRequest,
     ProjectResponse,
     PromptResponse,
     PublishingResponse,
+    PublishRequest,
+    PublishResponse,
     SceneResponse,
     IntegrationProjectResponse,
     IntegrationPromptResponse,
@@ -23,8 +33,14 @@ from app.schemas.projects import (
     DeliveryJobResponse,
     ExportManifestResponse,
     ProductionJobResponse,
+    YouTubeUploadJobResponse,
 )
 from app.domain.project import ProjectInput
+from app.domain.integration import (
+    ClipReviewEvent,
+    FinalReviewEvent,
+    YouTubeUploadJob,
+)
 from app.services.project_service import (
     ProjectNotFoundError,
     ProjectService,
@@ -34,6 +50,8 @@ from app.services.export_service import ExportService
 from app.api.integration_auth import require_integration_auth
 from app.services.delivery_service import DeliveryService
 from app.services.production_service import ProductionService
+from app.services.publishing_gate_service import PublishingGateService
+from app.services.youtube_metadata_validator import YouTubeMetadataValidator
 
 
 router = APIRouter()
@@ -41,6 +59,8 @@ project_service = ProjectService()
 export_service = ExportService()
 delivery_service = DeliveryService()
 production_service = ProductionService()
+publishing_gate_service = PublishingGateService()
+youtube_metadata_validator = YouTubeMetadataValidator()
 
 
 @router.get("/health", response_model=HealthResponse, tags=["system"])
@@ -121,6 +141,7 @@ def create_project(request: ProjectCreateRequest) -> ProjectResponse:
             audience=request.audience,
             visual_preferences=request.visual_preferences,
             duration_seconds=request.duration_seconds,
+            autonomous=request.autonomous,
         )
     )
     return _project_response(project)
@@ -191,6 +212,21 @@ def export_project(project_id: UUID) -> ExportResponse:
 
 
 @router.post(
+    "/api/projects/{project_id}/exports/manifest",
+    response_model=ExportManifestResponse,
+    tags=["export"],
+)
+def public_create_export_manifest(project_id: UUID) -> ExportManifestResponse:
+    try:
+        project = project_service.repository.get(project_id)
+        manifest = delivery_service.create_manifest(project, project_service.repository, export_service)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+    return _manifest_response(manifest)
+
+
+
+@router.post(
     "/api/integrations/projects",
     response_model=IntegrationProjectResponse,
     tags=["integrations"],
@@ -216,6 +252,7 @@ def integration_create_project(
                 audience=request.audience,
                 visual_preferences=request.visual_preferences,
                 duration_seconds=request.duration_seconds,
+                autonomous=request.autonomous,
             ),
         )
     except ProjectStateError as exc:
@@ -512,3 +549,612 @@ def integration_production_callback(job_id: str, payload: dict) -> ProductionJob
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return _production_response(job)
+
+
+# ---------------------------------------------------------------------------
+# Sprint 0 — Public prompt approve/reject routes (no auth; dev-only convenience)
+# These proxy to the same project_service.decide_prompt() used by integration routes.
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/api/projects/{project_id}/prompts/{scene_number}/approve",
+    response_model=ApprovalResponse,
+    tags=["prompts"],
+)
+def public_approve_prompt(project_id: UUID, scene_number: int, request: ApprovalRequest) -> ApprovalResponse:
+    try:
+        project = project_service.decide_prompt(project_id, scene_number, decision="approved", actor=request.actor, comment=request.comment)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+    except ProjectStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    project_service._audit("prompt.approved", str(project_id), metadata={"scene_number": scene_number, "actor": request.actor})
+    return ApprovalResponse(project_id=project.id, scene_number=scene_number, decision="approved", status=project.status.value)
+
+
+@router.post(
+    "/api/projects/{project_id}/prompts/{scene_number}/reject",
+    response_model=ApprovalResponse,
+    tags=["prompts"],
+)
+def public_reject_prompt(project_id: UUID, scene_number: int, request: ApprovalRequest) -> ApprovalResponse:
+    try:
+        project = project_service.decide_prompt(project_id, scene_number, decision="rejected", actor=request.actor, comment=request.comment)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+    except ProjectStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    project_service._audit("prompt.rejected", str(project_id), metadata={"scene_number": scene_number, "actor": request.actor})
+    return ApprovalResponse(project_id=project.id, scene_number=scene_number, decision="rejected", status=project.status.value)
+
+
+# ---------------------------------------------------------------------------
+# Phase 8 — Clip review endpoints
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/api/integrations/projects/{project_id}/clips/{scene_number}/review",
+    response_model=ClipReviewResponse,
+    tags=["publishing"],
+    dependencies=[Depends(require_integration_auth)],
+)
+def integration_review_clip(
+    project_id: UUID,
+    scene_number: int,
+    request: ClipReviewRequest,
+    request_id: str | None = Header(default=None, alias="X-Request-ID"),
+) -> ClipReviewResponse:
+    try:
+        project = project_service.repository.get(project_id)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+
+    # Verify artifact belongs to this project/scene
+    artifact = getattr(project_service.repository, "get_clip_artifact", lambda _: None)(request.artifact_id)
+    if artifact is None:
+        raise HTTPException(status_code=404, detail="Clip artifact not found")
+
+    # Update artifact review_status
+    artifact.review_status = request.decision
+    if hasattr(project_service.repository, "save_clip_artifact"):
+        project_service.repository.save_clip_artifact(artifact)
+
+    # Record the review event
+    event_id = hashlib.sha256(
+        f"clip_review:{project_id}:{scene_number}:{request.artifact_id}:{request.decision}:{datetime.now(timezone.utc).timestamp()}".encode()
+    ).hexdigest()[:24]
+    event = ClipReviewEvent(
+        event_id=event_id,
+        project_id=str(project_id),
+        scene_number=scene_number,
+        artifact_id=request.artifact_id,
+        decision=request.decision,
+        actor=request.actor,
+        comment=request.comment,
+        created_at=datetime.now(timezone.utc),
+    )
+    if hasattr(project_service.repository, "save_clip_review_event"):
+        project_service.repository.save_clip_review_event(event)
+
+    project_service._audit(
+        f"clip.{request.decision}", str(project_id), request_id,
+        {"scene_number": scene_number, "artifact_id": request.artifact_id, "actor": request.actor},
+    )
+    return ClipReviewResponse(
+        project_id=project_id,
+        scene_number=scene_number,
+        artifact_id=request.artifact_id,
+        decision=request.decision,
+        actor=request.actor,
+        status=request.decision,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 8 — Final review endpoints
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/api/integrations/projects/{project_id}/final-review",
+    response_model=FinalReviewStatusResponse,
+    tags=["publishing"],
+    dependencies=[Depends(require_integration_auth)],
+)
+def integration_get_final_review(project_id: UUID) -> FinalReviewStatusResponse:
+    try:
+        project_service.repository.get(project_id)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+    review = getattr(project_service.repository, "get_latest_final_review", lambda _: None)(str(project_id))
+    if review is None:
+        return FinalReviewStatusResponse(project_id=project_id, has_review=False, decision=None, actor=None, manifest_id=None, comment=None)
+    return FinalReviewStatusResponse(project_id=project_id, has_review=True, decision=review.decision, actor=review.actor, manifest_id=review.manifest_id, comment=review.comment)
+
+
+def _submit_final_review(project_id: UUID, decision: str, request: FinalReviewRequest, request_id: str | None) -> FinalReviewResponse:
+    try:
+        project = project_service.repository.get(project_id)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+
+    manifest = getattr(project_service.repository, "get_export_manifest", lambda _: None)(request.manifest_id)
+    if manifest is None or manifest.project_id != str(project_id):
+        raise HTTPException(status_code=404, detail="Export manifest not found for this project")
+
+    event_id = hashlib.sha256(
+        f"final_review:{project_id}:{decision}:{request.actor}:{datetime.now(timezone.utc).timestamp()}".encode()
+    ).hexdigest()[:24]
+    event = FinalReviewEvent(
+        event_id=event_id,
+        project_id=str(project_id),
+        manifest_id=request.manifest_id,
+        decision=decision,
+        actor=request.actor,
+        comment=request.comment,
+        created_at=datetime.now(timezone.utc),
+    )
+    if hasattr(project_service.repository, "save_final_review_event"):
+        project_service.repository.save_final_review_event(event)
+
+    # Advance project status
+    if decision == "approved":
+        project.status = project.status.__class__.VIDEO_APPROVED
+    else:
+        project.status = project.status.__class__.VIDEO_REJECTED
+    project_service.repository.save(project)
+
+    project_service._audit(f"final_review.{decision}", str(project_id), request_id, {"actor": request.actor, "manifest_id": request.manifest_id})
+    return FinalReviewResponse(project_id=project_id, decision=decision, actor=request.actor, manifest_id=request.manifest_id, project_status=project.status.value)
+
+
+@router.post(
+    "/api/integrations/projects/{project_id}/final-review/approve",
+    response_model=FinalReviewResponse,
+    tags=["publishing"],
+    dependencies=[Depends(require_integration_auth)],
+)
+def integration_approve_final(
+    project_id: UUID,
+    request: FinalReviewRequest,
+    request_id: str | None = Header(default=None, alias="X-Request-ID"),
+) -> FinalReviewResponse:
+    return _submit_final_review(project_id, "approved", request, request_id)
+
+
+@router.post(
+    "/api/integrations/projects/{project_id}/final-review/reject",
+    response_model=FinalReviewResponse,
+    tags=["publishing"],
+    dependencies=[Depends(require_integration_auth)],
+)
+def integration_reject_final(
+    project_id: UUID,
+    request: FinalReviewRequest,
+    request_id: str | None = Header(default=None, alias="X-Request-ID"),
+) -> FinalReviewResponse:
+    return _submit_final_review(project_id, "rejected", request, request_id)
+
+
+# ---------------------------------------------------------------------------
+# Phase 8 — Publishing gate check
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/api/integrations/projects/{project_id}/publish/gate",
+    response_model=GateReportResponse,
+    tags=["publishing"],
+    dependencies=[Depends(require_integration_auth)],
+)
+def integration_gate_check(project_id: UUID) -> GateReportResponse:
+    try:
+        project = project_service.repository.get(project_id)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+    report = publishing_gate_service.check(project, project_service.repository)
+    return GateReportResponse(can_publish=report.can_publish, failed_gates=report.failed_gates)
+
+
+# ---------------------------------------------------------------------------
+# Phase 8 — Publish (creates YouTube upload job after gate check)
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/api/integrations/projects/{project_id}/publish",
+    response_model=PublishResponse,
+    tags=["publishing"],
+    dependencies=[Depends(require_integration_auth)],
+)
+def integration_publish(
+    project_id: UUID,
+    request: PublishRequest,
+    request_id: str | None = Header(default=None, alias="X-Request-ID"),
+) -> PublishResponse:
+    try:
+        project = project_service.repository.get(project_id)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+
+    # Idempotency check
+    existing_key = getattr(project_service.repository, "get_idempotency", lambda _: None)(request.idempotency_key)
+    if existing_key is not None:
+        if existing_key.operation != "integration.publish":
+            raise HTTPException(status_code=409, detail="Idempotency key was reused with a different operation.")
+        existing_job = getattr(project_service.repository, "get_youtube_upload_job", lambda _: None)(existing_key.response.get("job_id", ""))
+        if existing_job is not None:
+            return PublishResponse(job_id=existing_job.job_id, project_id=project_id, manifest_id=existing_job.manifest_id, status=existing_job.status, upload_checksum=existing_job.upload_checksum)
+
+    # Gate check — enforced in API layer, not n8n
+    report = publishing_gate_service.check(project, project_service.repository)
+    if not report.can_publish:
+        raise HTTPException(status_code=422, detail={"message": "Pre-publish gates failed.", "failed_gates": report.failed_gates})
+
+    # Get latest manifest
+    manifest = getattr(project_service.repository, "get_latest_export_manifest", lambda _: None)(str(project_id))
+    if manifest is None:
+        raise HTTPException(status_code=422, detail="No export manifest found.")
+
+    # Create upload job
+    upload_checksum = hashlib.sha256(f"{manifest.checksum}:{manifest.manifest_id}".encode()).hexdigest()
+    job_id = str(uuid4())
+    job = YouTubeUploadJob(
+        job_id=job_id,
+        project_id=str(project_id),
+        manifest_id=manifest.manifest_id,
+        status="QUEUED",
+        upload_checksum=upload_checksum,
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    if hasattr(project_service.repository, "save_youtube_upload_job"):
+        project_service.repository.save_youtube_upload_job(job)
+
+    # Advance project status
+    project.status = project.status.__class__.PUBLISHING_PENDING
+    project_service.repository.save(project)
+
+    # Record idempotency
+    from app.domain.integration import IdempotencyRecord
+    if hasattr(project_service.repository, "save_idempotency"):
+        project_service.repository.save_idempotency(IdempotencyRecord(request.idempotency_key, "integration.publish", hashlib.sha256(f"publish:{project_id}".encode()).hexdigest(), {"job_id": job_id}, datetime.now(timezone.utc)))
+
+    project_service._audit("project.publish_queued", str(project_id), request_id, {"job_id": job_id, "actor": request.actor, "upload_checksum": upload_checksum})
+    return PublishResponse(job_id=job_id, project_id=project_id, manifest_id=manifest.manifest_id, status="QUEUED", upload_checksum=upload_checksum)
+
+
+# ---------------------------------------------------------------------------
+# Phase 8 — YouTube upload job status & n8n callback
+# ---------------------------------------------------------------------------
+
+def _upload_job_response(job) -> YouTubeUploadJobResponse:
+    return YouTubeUploadJobResponse(
+        job_id=job.job_id,
+        project_id=UUID(job.project_id),
+        manifest_id=job.manifest_id,
+        status=job.status,
+        youtube_video_id=job.youtube_video_id,
+        upload_attempts=job.upload_attempts,
+        error_class=job.error_class,
+        youtube_url=job.youtube_url,
+        error=job.error,
+    )
+
+
+@router.get(
+    "/api/integrations/youtube-upload-jobs/{job_id}",
+    response_model=YouTubeUploadJobResponse,
+    tags=["publishing"],
+    dependencies=[Depends(require_integration_auth)],
+)
+def integration_upload_job_status(job_id: str) -> YouTubeUploadJobResponse:
+    job = getattr(project_service.repository, "get_youtube_upload_job", lambda _: None)(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="YouTube upload job not found")
+    return _upload_job_response(job)
+
+
+@router.post(
+    "/api/integrations/youtube-upload-jobs/{job_id}/callback",
+    response_model=YouTubeUploadJobResponse,
+    tags=["publishing"],
+    dependencies=[Depends(require_integration_auth)],
+)
+def integration_upload_job_callback(
+    job_id: str,
+    payload: dict,
+    request_id: str | None = Header(default=None, alias="X-Request-ID"),
+) -> YouTubeUploadJobResponse:
+    job = getattr(project_service.repository, "get_youtube_upload_job", lambda _: None)(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="YouTube upload job not found")
+
+    if job.status in {"PUBLISHED", "FAILED_PERMANENT"}:
+        return _upload_job_response(job)  # idempotent
+
+    status = str(payload.get("status", "")).upper()
+    if status not in {"PUBLISHED", "FAILED_RETRYABLE", "FAILED_PERMANENT"}:
+        raise HTTPException(status_code=422, detail=f"Unsupported callback status: {status}")
+
+    job.upload_attempts += 1
+    job.status = status
+    job.updated_at = datetime.now(timezone.utc)
+
+    if status == "PUBLISHED":
+        job.youtube_video_id = str(payload.get("youtube_video_id", ""))
+        job.youtube_url = str(payload.get("youtube_url", ""))
+        job.published_at = datetime.now(timezone.utc)
+        job.error = ""
+        job.error_class = ""
+        # Advance project to PUBLISHED
+        try:
+            project = project_service.repository.get(UUID(job.project_id))
+            project.status = project.status.__class__.PUBLISHED
+            project_service.repository.save(project)
+        except ProjectNotFoundError:
+            pass
+    else:
+        job.error = str(payload.get("error", ""))
+        job.error_class = str(payload.get("error_class", ""))
+        if status == "FAILED_PERMANENT":
+            try:
+                project = project_service.repository.get(UUID(job.project_id))
+                project.status = project.status.__class__.PUBLISH_FAILED
+                project_service.repository.save(project)
+            except ProjectNotFoundError:
+                pass
+
+    if hasattr(project_service.repository, "save_youtube_upload_job"):
+        project_service.repository.save_youtube_upload_job(job)
+
+    project_service._audit(f"upload.{status.lower()}", job.project_id, request_id, {"job_id": job_id, "youtube_video_id": job.youtube_video_id})
+    return _upload_job_response(job)
+
+
+# ---------------------------------------------------------------------------
+# Phase 8 — YouTube metadata validation
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/api/integrations/projects/{project_id}/metadata/validate",
+    response_model=MetadataValidationResponse,
+    tags=["publishing"],
+    dependencies=[Depends(require_integration_auth)],
+)
+def integration_validate_metadata(project_id: UUID) -> MetadataValidationResponse:
+    try:
+        project = project_service.repository.get(project_id)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+    publishing_package = export_service.publishing_package(project)
+    report = youtube_metadata_validator.validate(publishing_package)
+    return MetadataValidationResponse(valid=report.valid, errors=report.errors, warnings=report.warnings)
+
+
+# ---------------------------------------------------------------------------
+# Public / Dev-friendly endpoints for production, clip review, and publishing
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/api/projects/{project_id}/scenes/{scene_number}/production",
+    response_model=ProductionJobResponse,
+    tags=["production"],
+)
+def public_submit_production(
+    project_id: UUID,
+    scene_number: int,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+) -> ProductionJobResponse:
+    ikey = idempotency_key or f"prod-scene-{project_id}-{scene_number}-{datetime.now(timezone.utc).timestamp()}"
+    request_hash = hashlib.sha256(f"public.production:{project_id}:{scene_number}".encode()).hexdigest()
+    
+    existing = getattr(project_service.repository, "get_idempotency", lambda _: None)(ikey)
+    if existing is not None and (existing.operation != "public.production" or existing.request_hash != request_hash):
+        raise HTTPException(status_code=409, detail="Idempotency key was reused with a different request.")
+    
+    try:
+        project = project_service.repository.get(project_id)
+        if project.status not in {project.status.APPROVED, project.status.COMPLETED}:
+            raise ProjectStateError("Approve the prompt before submitting production.")
+        
+        job = project_service.repository.get_production_job(existing.response["job_id"]) if existing is not None and hasattr(project_service.repository, "get_production_job") else None
+        if job is None:
+            job = production_service.submit_clip(project, scene_number, project_service.repository)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+    except ProjectStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    
+    if existing is None and hasattr(project_service.repository, "save_idempotency"):
+        from app.domain.integration import IdempotencyRecord
+        project_service.repository.save_idempotency(IdempotencyRecord(ikey, "public.production", request_hash, {"job_id": job.job_id}, datetime.now(timezone.utc)))
+    
+    return _production_response(job)
+
+
+@router.post(
+    "/api/projects/{project_id}/production-jobs/{job_id}/mock-complete",
+    response_model=ProductionJobResponse,
+    tags=["production"],
+)
+def public_mock_complete_production(project_id: UUID, job_id: str) -> ProductionJobResponse:
+    job = getattr(project_service.repository, "get_production_job", lambda _: None)(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Production job not found")
+    
+    payload = {
+        "status": "SUCCEEDED",
+        "duration_seconds": 10,
+        "aspect_ratio": "9:16",
+        "narration_end_seconds": 8.5,
+        "checksum": f"mock-checksum-{uuid4().hex[:8]}",
+        "artifact_url": f"https://storage.googleapis.com/mock-bucket/project-{project_id}-scene-{job.scene_number}.mp4",
+    }
+    try:
+        job = production_service.complete_callback(job, payload, project_service.repository)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return _production_response(job)
+
+
+@router.get(
+    "/api/projects/{project_id}/production-jobs",
+    response_model=list[ProductionJobResponse],
+    tags=["production"],
+)
+def public_get_production_jobs(project_id: UUID) -> list[ProductionJobResponse]:
+    try:
+        project_service.repository.get(project_id)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+    
+    # Query repository production jobs
+    jobs = []
+    repo = project_service.repository
+    if hasattr(repo, "production_jobs"):
+        # InMemory
+        jobs = [j for j in repo.production_jobs.values() if j.project_id == str(project_id)]
+    elif hasattr(repo, "engine"):
+        # SQL repo
+        from sqlalchemy import select as sa_select
+        from app.repositories.sql import Session, ProductionJobRecord
+        with Session(repo.engine) as session:
+            records = session.scalars(
+                sa_select(ProductionJobRecord).where(ProductionJobRecord.project_id == str(project_id))
+            ).all()
+            from app.domain.integration import ProductionJob as PJ
+            jobs = [PJ(r.job_id, r.project_id, r.scene_number, r.prompt_version, r.job_type, r.provider, r.provider_job_id, r.status, r.contract or {}, r.artifact_id, r.error, r.created_at, r.updated_at) for r in records]
+    
+    return [_production_response(j) for j in sorted(jobs, key=lambda x: x.scene_number)]
+
+
+@router.get(
+    "/api/projects/{project_id}/clips",
+    tags=["production"],
+)
+def public_get_clips(project_id: UUID):
+    try:
+        project_service.repository.get(project_id)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+    
+    repo = project_service.repository
+    if hasattr(repo, "get_clip_artifacts_for_project"):
+        artifacts = repo.get_clip_artifacts_for_project(str(project_id))
+    else:
+        artifacts = []
+    
+    return [
+        {
+            "artifact_id": a.artifact_id,
+            "job_id": a.job_id,
+            "checksum": a.checksum,
+            "duration_seconds": a.duration_seconds,
+            "aspect_ratio": a.aspect_ratio,
+            "narration_end_seconds": a.narration_end_seconds,
+            "artifact_url": a.artifact_url,
+            "review_status": a.review_status,
+            "created_at": a.created_at,
+        }
+        for a in artifacts
+    ]
+
+
+@router.post(
+    "/api/projects/{project_id}/clips/{scene_number}/review",
+    response_model=ClipReviewResponse,
+    tags=["publishing"],
+)
+def public_review_clip(project_id: UUID, scene_number: int, request: ClipReviewRequest) -> ClipReviewResponse:
+    # Proxies to the integration clip review logic
+    return integration_review_clip(project_id, scene_number, request, request_id=None)
+
+
+@router.get(
+    "/api/projects/{project_id}/final-review",
+    response_model=FinalReviewStatusResponse,
+    tags=["publishing"],
+)
+def public_get_final_review(project_id: UUID) -> FinalReviewStatusResponse:
+    return integration_get_final_review(project_id)
+
+
+@router.post(
+    "/api/projects/{project_id}/final-review/approve",
+    response_model=FinalReviewResponse,
+    tags=["publishing"],
+)
+def public_approve_final(project_id: UUID, request: FinalReviewRequest) -> FinalReviewResponse:
+    return _submit_final_review(project_id, "approved", request, request_id=None)
+
+
+@router.post(
+    "/api/projects/{project_id}/final-review/reject",
+    response_model=FinalReviewResponse,
+    tags=["publishing"],
+)
+def public_reject_final(project_id: UUID, request: FinalReviewRequest) -> FinalReviewResponse:
+    return _submit_final_review(project_id, "rejected", request, request_id=None)
+
+
+@router.get(
+    "/api/projects/{project_id}/publish/gate",
+    response_model=GateReportResponse,
+    tags=["publishing"],
+)
+def public_gate_check(project_id: UUID) -> GateReportResponse:
+    return integration_gate_check(project_id)
+
+
+@router.post(
+    "/api/projects/{project_id}/publish",
+    response_model=PublishResponse,
+    tags=["publishing"],
+)
+def public_publish(project_id: UUID, request: PublishRequest) -> PublishResponse:
+    return integration_publish(project_id, request, request_id=None)
+
+
+@router.get(
+    "/api/projects/{project_id}/youtube-upload-jobs",
+    tags=["publishing"],
+)
+def public_get_youtube_upload_jobs(project_id: UUID):
+    try:
+        project_service.repository.get(project_id)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+    
+    repo = project_service.repository
+    jobs = []
+    if hasattr(repo, "youtube_upload_jobs"):
+        jobs = [j for j in repo.youtube_upload_jobs.values() if j.project_id == str(project_id)]
+    elif hasattr(repo, "engine"):
+        from sqlalchemy import select as sa_select
+        from app.repositories.sql import Session, YouTubeUploadJobRecord
+        with Session(repo.engine) as session:
+            records = session.scalars(
+                sa_select(YouTubeUploadJobRecord).where(YouTubeUploadJobRecord.project_id == str(project_id))
+            ).all()
+            from app.domain.integration import YouTubeUploadJob as YJ
+            jobs = [YJ(r.job_id, r.project_id, r.manifest_id, r.status, r.upload_checksum, r.youtube_video_id, r.upload_attempts, r.error_class, r.published_at, r.youtube_url, r.error, r.created_at, r.updated_at) for r in records]
+            
+    return [_upload_job_response(j) for j in sorted(jobs, key=lambda x: x.created_at)]
+
+
+@router.post(
+    "/api/projects/{project_id}/youtube-upload-jobs/{job_id}/mock-complete",
+    response_model=YouTubeUploadJobResponse,
+    tags=["publishing"],
+)
+def public_mock_complete_youtube_upload(project_id: UUID, job_id: str, success: bool = True) -> YouTubeUploadJobResponse:
+    payload = {
+        "status": "PUBLISHED" if success else "FAILED_PERMANENT",
+        "youtube_video_id": f"yt-{uuid4().hex[:8]}" if success else "",
+        "youtube_url": f"https://www.youtube.com/watch?v={uuid4().hex[:8]}" if success else "",
+        "error": "" if success else "Quota exceeded or invalid credentials.",
+        "error_class": "" if success else "YouTubeQuotaExceeded",
+    }
+    return integration_upload_job_callback(job_id, payload, request_id=None)
+
+

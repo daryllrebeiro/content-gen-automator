@@ -20,6 +20,12 @@ class ProjectStatus(str, Enum):
     PROMPT_APPROVAL_PENDING = "PROMPT_APPROVAL_PENDING"
     APPROVED = "APPROVED"
     COMPLETED = "COMPLETED"
+    VIDEO_REVIEW_PENDING = "VIDEO_REVIEW_PENDING"
+    VIDEO_APPROVED = "VIDEO_APPROVED"
+    VIDEO_REJECTED = "VIDEO_REJECTED"
+    PUBLISHING_PENDING = "PUBLISHING_PENDING"
+    PUBLISHED = "PUBLISHED"
+    PUBLISH_FAILED = "PUBLISH_FAILED"
     FAILED = "FAILED"
 
 
@@ -37,6 +43,8 @@ class ProjectInput:
     audience: str = "general audience"
     visual_preferences: dict[str, str] = field(default_factory=dict)
     duration_seconds: DurationSeconds = 30
+    autonomous: bool = False
+
 
 
 @dataclass

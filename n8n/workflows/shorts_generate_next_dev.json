@@ -1,0 +1,19 @@
+{
+  "name": "shorts_generate_next_dev",
+  "active": false,
+  "nodes": [
+    {"name": "Webhook", "type": "n8n-nodes-base.webhook", "parameters": {"path": "shorts/prompt-approved", "httpMethod": "POST"}},
+    {"name": "Check Status", "type": "n8n-nodes-base.httpRequest", "parameters": {"method": "GET", "url": "={{$env.AGENT_API_URL}}/api/integrations/projects/{{$json.project_id}}/status", "sendHeaders": true, "headerParameters": {"parameters": [{"name": "Authorization", "value": "=Bearer {{$credentials.agentServiceToken}}"}]}}},
+    {"name": "If More Scenes", "type": "n8n-nodes-base.if", "parameters": {"conditions": {"string": [{"value1": "={{$json.next_scene_number}}", "operation": "notEmpty"}]}}},
+    {"name": "Generate Prompt", "type": "n8n-nodes-base.httpRequest", "parameters": {"method": "POST", "url": "={{$env.AGENT_API_URL}}/api/integrations/projects/{{$json.project_id}}/prompts/next", "sendHeaders": true, "headerParameters": {"parameters": [{"name": "Authorization", "value": "=Bearer {{$credentials.agentServiceToken}}"}, {"name": "Idempotency-Key", "value": "={{$json.project_id}}-prompt-{{$json.next_scene_number}}"}, {"name": "X-Request-ID", "value": "={{$execution.id}}"}]}}}
+  ],
+  "connections": {
+    "Webhook": {"main": [[{"node": "Check Status", "type": "main", "index": 0}]]},
+    "Check Status": {"main": [[{"node": "If More Scenes", "type": "main", "index": 0}]]},
+    "If More Scenes": {
+      "main": [
+        [{"node": "Generate Prompt", "type": "main", "index": 0}]
+      ]
+    }
+  }
+}

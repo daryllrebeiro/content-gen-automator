@@ -59,4 +59,35 @@ pre { background: #0c0c13; border: 1px solid #242433; border-radius: 9px; color:
 .score-grid b { color: var(--ink); float: right; }
 .error { color: #ff8f8f; margin: 14px 0; }
 .complete { color: var(--accent); font-weight: 700; }
-@media (max-width: 680px) { .shell { padding: 20px 16px 50px; } .two-col, .lock-grid { grid-template-columns: 1fr; gap: 0; } .duration-row { flex-wrap: wrap; } .duration { min-width: 30%; } .prompt-heading { display: block; } .timing { display: block; margin-top: 12px; } .action-row { align-items: stretch; flex-direction: column; } }
+
+/* ── Status badges ──────────────────────────────────────────────────────── */
+.badge { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; padding: 4px 10px; border-radius: 20px; background: rgba(255,255,255,.06); color: var(--muted); border: 1px solid var(--line); }
+.badge-success { background: rgba(34,197,94,.12); color: #4ade80; border-color: rgba(34,197,94,.3); }
+.badge-warning { background: rgba(245,158,11,.12); color: #fbbf24; border-color: rgba(245,158,11,.3); }
+.badge-error { background: rgba(239,68,68,.12); color: #f87171; border-color: rgba(239,68,68,.3); }
+
+/* ── Approval panel ─────────────────────────────────────────────────────── */
+.prompt-card--needs-approval { border-color: rgba(245,158,11,.5); box-shadow: 0 0 0 1px rgba(245,158,11,.15); }
+.approval-panel { background: rgba(245,158,11,.07); border: 1px solid rgba(245,158,11,.25); border-radius: 10px; margin-top: 20px; padding: 18px; }
+.approval-panel .eyebrow { color: #fbbf24; margin-bottom: 8px; }
+.reject-comment { margin: 14px 0; min-height: 60px; }
+.approval-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.approve-btn { background: rgba(34,197,94,.15); border: 1px solid rgba(34,197,94,.4); border-radius: 8px; color: #4ade80; font-weight: 700; font-size: 13px; padding: 11px 20px; }
+.approve-btn:hover:not(:disabled) { background: rgba(34,197,94,.25); }
+.reject-btn { background: rgba(239,68,68,.12); border: 1px solid rgba(239,68,68,.35); border-radius: 8px; color: #f87171; font-weight: 700; font-size: 13px; padding: 11px 20px; }
+.reject-btn:hover:not(:disabled) { background: rgba(239,68,68,.22); }
+.approve-btn:disabled, .reject-btn:disabled { opacity: .45; cursor: wait; }
+
+/* ── Quality bars ───────────────────────────────────────────────────────── */
+.quality-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px 16px; margin-bottom: 14px; }
+.quality-item { display: flex; flex-direction: column; gap: 3px; }
+.quality-name { font-size: 11px; text-transform: capitalize; color: var(--muted); letter-spacing: .04em; }
+.quality-bar-wrap { display: flex; align-items: center; gap: 6px; }
+.quality-bar { height: 5px; border-radius: 3px; min-width: 2px; transition: width .3s; }
+.quality-label { font-size: 11px; font-weight: 700; color: var(--ink); }
+
+/* ── Published banner ───────────────────────────────────────────────────── */
+.published-banner { background: rgba(34,197,94,.08); border-color: rgba(34,197,94,.3); margin-top: 16px; }
+.published-banner .eyebrow { color: #4ade80; }
+
+@media (max-width: 680px) { .shell { padding: 20px 16px 50px; } .two-col, .lock-grid { grid-template-columns: 1fr; gap: 0; } .duration-row { flex-wrap: wrap; } .duration { min-width: 30%; } .prompt-heading { display: block; } .timing { display: block; margin-top: 12px; } .action-row { align-items: stretch; flex-direction: column; } .quality-grid { grid-template-columns: repeat(2, 1fr); } .approval-actions { flex-direction: column; } }

@@ -16,6 +16,8 @@ class ProjectCreateRequest(BaseModel):
     audience: str = Field(default="general audience", max_length=100)
     visual_preferences: dict[str, str] = Field(default_factory=dict)
     duration_seconds: DurationSeconds = 30
+    autonomous: bool = Field(default=False)
+
 
 
 class SceneResponse(BaseModel):
@@ -158,3 +160,82 @@ class ProductionJobResponse(BaseModel):
     contract: dict
     artifact_id: str = ""
     error: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Phase 8 — Publishing automation schemas
+# ---------------------------------------------------------------------------
+
+class ClipReviewRequest(BaseModel):
+    artifact_id: str = Field(min_length=1, max_length=64)
+    decision: Literal["approved", "rejected"]
+    actor: str = Field(min_length=1, max_length=200)
+    comment: str = Field(default="", max_length=1000)
+
+
+class ClipReviewResponse(BaseModel):
+    project_id: UUID
+    scene_number: int
+    artifact_id: str
+    decision: str
+    actor: str
+    status: str  # clip review_status after decision
+
+
+class FinalReviewRequest(BaseModel):
+    actor: str = Field(min_length=1, max_length=200)
+    manifest_id: str = Field(min_length=1, max_length=64)
+    comment: str = Field(default="", max_length=2000)
+
+
+class FinalReviewResponse(BaseModel):
+    project_id: UUID
+    decision: str
+    actor: str
+    manifest_id: str
+    project_status: str
+
+
+class FinalReviewStatusResponse(BaseModel):
+    project_id: UUID
+    has_review: bool
+    decision: str | None
+    actor: str | None
+    manifest_id: str | None
+    comment: str | None
+
+
+class GateReportResponse(BaseModel):
+    can_publish: bool
+    failed_gates: list[str]
+
+
+class PublishRequest(BaseModel):
+    actor: str = Field(min_length=1, max_length=200)
+    idempotency_key: str = Field(min_length=1, max_length=200)
+
+
+class PublishResponse(BaseModel):
+    job_id: str
+    project_id: UUID
+    manifest_id: str
+    status: str
+    upload_checksum: str
+
+
+class YouTubeUploadJobResponse(BaseModel):
+    job_id: str
+    project_id: UUID
+    manifest_id: str
+    status: str
+    youtube_video_id: str = ""
+    upload_attempts: int
+    error_class: str = ""
+    youtube_url: str = ""
+    error: str = ""
+
+
+class MetadataValidationResponse(BaseModel):
+    valid: bool
+    errors: list[str]
+    warnings: list[str]
