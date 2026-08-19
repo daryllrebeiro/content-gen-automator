@@ -17,6 +17,11 @@ class ProjectCreateRequest(BaseModel):
     visual_preferences: dict[str, str] = Field(default_factory=dict)
     duration_seconds: DurationSeconds = 30
     autonomous: bool = Field(default=False)
+    tts_provider: str = Field(default="mock")
+    video_provider: str = Field(default="mock")
+    stitch_provider: str = Field(default="mock")
+    publish_provider: str = Field(default="mock")
+
 
 
 
@@ -71,6 +76,11 @@ class ProjectResponse(BaseModel):
     scenes: list[SceneResponse]
     continuity: dict
     prompts: list[PromptResponse]
+    tts_provider: str
+    video_provider: str
+    stitch_provider: str
+    publish_provider: str
+
 
 
 class PublishingResponse(BaseModel):

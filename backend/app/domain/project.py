@@ -44,6 +44,11 @@ class ProjectInput:
     visual_preferences: dict[str, str] = field(default_factory=dict)
     duration_seconds: DurationSeconds = 30
     autonomous: bool = False
+    tts_provider: str = "mock"
+    video_provider: str = "mock"
+    stitch_provider: str = "mock"
+    publish_provider: str = "mock"
+
 
 
 

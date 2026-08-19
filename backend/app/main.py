@@ -20,3 +20,13 @@ app.add_middleware(
 )
 
 app.include_router(router)
+
+from fastapi.staticfiles import StaticFiles
+import os
+
+os.makedirs("app/static/audio", exist_ok=True)
+os.makedirs("app/static/video", exist_ok=True)
+os.makedirs("app/static/output", exist_ok=True)
+
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
+

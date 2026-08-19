@@ -3,7 +3,8 @@ import hashlib
 import json
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, BackgroundTasks
+import time
 
 from app.schemas.health import HealthResponse, ReadinessResponse
 from app.config import settings
@@ -61,6 +62,121 @@ delivery_service = DeliveryService()
 production_service = ProductionService()
 publishing_gate_service = PublishingGateService()
 youtube_metadata_validator = YouTubeMetadataValidator()
+
+
+def run_production_pipeline_async(project_id_str: str, job_id: str, scene_number: int):
+    repo = project_service.repository
+    project = repo.get(UUID(project_id_str))
+    prompt = project.prompts.get(scene_number)
+    if not prompt:
+        return
+
+    job = None
+    if hasattr(repo, "get_production_job"):
+        job = repo.get_production_job(job_id)
+    else:
+        if hasattr(repo, "production_jobs"):
+            job = repo.production_jobs.get(job_id)
+
+    if not job:
+        return
+
+    time.sleep(1.5)
+
+    try:
+        audio_url = f"/static/audio/{project_id_str}_{scene_number}.mp3"
+        if project.input.tts_provider == "elevenlabs":
+            from app.services.elevenlabs_service import ElevenLabsTTSService
+            tts_service = ElevenLabsTTSService()
+            tts_service.synthesize(project_id_str, scene_number, prompt.narration)
+        else:
+            import os
+            os.makedirs("app/static/audio", exist_ok=True)
+            with open(f"app/static/audio/{project_id_str}_{scene_number}.mp3", "wb") as f:
+                f.write(b"MOCK AUDIO DATA")
+        
+        video_url = f"/static/video/{project_id_str}_{scene_number}.mp4"
+        if project.input.video_provider in {"runway", "kling"}:
+            from app.services.video_gen_service import RealVideoGenService
+            video_service = RealVideoGenService()
+            video_service.generate_clip(project_id_str, scene_number, prompt.text, project.input.video_provider)
+        else:
+            import os
+            os.makedirs("app/static/video", exist_ok=True)
+            with open(f"app/static/video/{project_id_str}_{scene_number}.mp4", "wb") as f:
+                f.write(b"MOCK VIDEO DATA")
+
+        payload = {
+            "status": "SUCCEEDED",
+            "duration_seconds": 10,
+            "aspect_ratio": "9:16",
+            "narration_end_seconds": 8.5,
+            "checksum": hashlib.sha256(f"{project_id_str}:{scene_number}".encode()).hexdigest()[:16],
+            "artifact_url": video_url,
+        }
+        production_service.complete_callback(job, payload, repo)
+    except Exception as e:
+        payload = {
+            "status": "FAILED_PERMANENT",
+            "error": str(e),
+        }
+        production_service.complete_callback(job, payload, repo)
+
+
+def run_publishing_pipeline_async(project_id_str: str, upload_job_id: str):
+    repo = project_service.repository
+    project = repo.get(UUID(project_id_str))
+    
+    upload_job = None
+    if hasattr(repo, "get_youtube_upload_job"):
+        upload_job = repo.get_youtube_upload_job(upload_job_id)
+    else:
+        if hasattr(repo, "youtube_upload_jobs"):
+            upload_job = repo.youtube_upload_jobs.get(upload_job_id)
+
+    if not upload_job:
+        return
+        
+    upload_job.status = "UPLOADING"
+    if hasattr(repo, "save_youtube_upload_job"):
+        repo.save_youtube_upload_job(upload_job)
+
+    try:
+        final_video_url = f"/static/output/{project_id_str}_final.mp4"
+        if project.input.stitch_provider == "ffmpeg":
+            from app.services.ffmpeg_service import FFmpegAssemblyService
+            stitcher = FFmpegAssemblyService()
+            stitcher.assemble_shorts(project)
+        else:
+            import os
+            os.makedirs("app/static/output", exist_ok=True)
+            with open(f"app/static/output/{project_id_str}_final.mp4", "wb") as f:
+                f.write(b"MOCK FINAL STITCHED VIDEO")
+
+        youtube_url = "https://youtu.be/dQw4w9WgXcQ"
+        if project.input.publish_provider == "youtube":
+            from app.services.youtube_publish_service import YouTubePublishService
+            publisher = YouTubePublishService()
+            youtube_url = publisher.publish_shorts(project, f"app/static/output/{project_id_str}_final.mp4")
+
+        upload_job.youtube_video_id = youtube_url.split("/")[-1]
+        upload_job.youtube_url = youtube_url
+        upload_job.published_at = datetime.now(timezone.utc)
+        upload_job.status = "PUBLISHED"
+        upload_job.error = ""
+        upload_job.error_class = ""
+        project.status = project.status.__class__.PUBLISHED
+        repo.save(project)
+    except Exception as e:
+        upload_job.status = "FAILED_PERMANENT"
+        upload_job.error = str(e)
+        upload_job.error_class = e.__class__.__name__
+        project.status = project.status.__class__.PUBLISH_FAILED
+        repo.save(project)
+
+    if hasattr(repo, "save_youtube_upload_job"):
+        repo.save_youtube_upload_job(upload_job)
+
 
 
 @router.get("/health", response_model=HealthResponse, tags=["system"])
@@ -126,7 +242,12 @@ def _project_response(project) -> ProjectResponse:
         scenes=[SceneResponse(**scene.__dict__) for scene in project.scenes],
         continuity=project.continuity.__dict__,
         prompts=[_prompt_response(prompt) for prompt in project.prompts.values()],
+        tts_provider=project.input.tts_provider,
+        video_provider=project.input.video_provider,
+        stitch_provider=project.input.stitch_provider,
+        publish_provider=project.input.publish_provider,
     )
+
 
 
 @router.post("/api/projects", response_model=ProjectResponse, tags=["projects"])
@@ -142,6 +263,10 @@ def create_project(request: ProjectCreateRequest) -> ProjectResponse:
             visual_preferences=request.visual_preferences,
             duration_seconds=request.duration_seconds,
             autonomous=request.autonomous,
+            tts_provider=request.tts_provider,
+            video_provider=request.video_provider,
+            stitch_provider=request.stitch_provider,
+            publish_provider=request.publish_provider,
         )
     )
     return _project_response(project)
@@ -253,6 +378,10 @@ def integration_create_project(
                 visual_preferences=request.visual_preferences,
                 duration_seconds=request.duration_seconds,
                 autonomous=request.autonomous,
+                tts_provider=request.tts_provider,
+                video_provider=request.video_provider,
+                stitch_provider=request.stitch_provider,
+                publish_provider=request.publish_provider,
             ),
         )
     except ProjectStateError as exc:
@@ -767,6 +896,7 @@ def integration_gate_check(project_id: UUID) -> GateReportResponse:
 def integration_publish(
     project_id: UUID,
     request: PublishRequest,
+    background_tasks: BackgroundTasks,
     request_id: str | None = Header(default=None, alias="X-Request-ID"),
 ) -> PublishResponse:
     try:
@@ -816,6 +946,10 @@ def integration_publish(
     from app.domain.integration import IdempotencyRecord
     if hasattr(project_service.repository, "save_idempotency"):
         project_service.repository.save_idempotency(IdempotencyRecord(request.idempotency_key, "integration.publish", hashlib.sha256(f"publish:{project_id}".encode()).hexdigest(), {"job_id": job_id}, datetime.now(timezone.utc)))
+
+    # Trigger background task if real providers are used or project is in autonomous autopilot mode
+    if project.input.publish_provider != "mock" or project.input.stitch_provider != "mock" or project.input.autonomous:
+        background_tasks.add_task(run_publishing_pipeline_async, str(project_id), job_id)
 
     project_service._audit("project.publish_queued", str(project_id), request_id, {"job_id": job_id, "actor": request.actor, "upload_checksum": upload_checksum})
     return PublishResponse(job_id=job_id, project_id=project_id, manifest_id=manifest.manifest_id, status="QUEUED", upload_checksum=upload_checksum)
@@ -941,6 +1075,7 @@ def integration_validate_metadata(project_id: UUID) -> MetadataValidationRespons
 def public_submit_production(
     project_id: UUID,
     scene_number: int,
+    background_tasks: BackgroundTasks,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> ProductionJobResponse:
     ikey = idempotency_key or f"prod-scene-{project_id}-{scene_number}-{datetime.now(timezone.utc).timestamp()}"
@@ -958,6 +1093,9 @@ def public_submit_production(
         job = project_service.repository.get_production_job(existing.response["job_id"]) if existing is not None and hasattr(project_service.repository, "get_production_job") else None
         if job is None:
             job = production_service.submit_clip(project, scene_number, project_service.repository)
+            # Trigger background task if real providers are used or project is in autonomous autopilot mode
+            if project.input.tts_provider != "mock" or project.input.video_provider != "mock" or project.input.autonomous:
+                background_tasks.add_task(run_production_pipeline_async, str(project_id), job.job_id, scene_number)
     except ProjectNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Project not found") from exc
     except ProjectStateError as exc:
@@ -970,6 +1108,7 @@ def public_submit_production(
         project_service.repository.save_idempotency(IdempotencyRecord(ikey, "public.production", request_hash, {"job_id": job.job_id}, datetime.now(timezone.utc)))
     
     return _production_response(job)
+
 
 
 @router.post(
@@ -1111,8 +1250,8 @@ def public_gate_check(project_id: UUID) -> GateReportResponse:
     response_model=PublishResponse,
     tags=["publishing"],
 )
-def public_publish(project_id: UUID, request: PublishRequest) -> PublishResponse:
-    return integration_publish(project_id, request, request_id=None)
+def public_publish(project_id: UUID, request: PublishRequest, background_tasks: BackgroundTasks) -> PublishResponse:
+    return integration_publish(project_id, request, background_tasks, request_id=None)
 
 
 @router.get(

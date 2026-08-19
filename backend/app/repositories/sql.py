@@ -226,7 +226,13 @@ class SqlProjectRepository:
                 "tone": project.input.tone,
                 "audience": project.input.audience,
                 "visual_preferences": project.input.visual_preferences,
+                "autonomous": project.input.autonomous,
+                "tts_provider": project.input.tts_provider,
+                "video_provider": project.input.video_provider,
+                "stitch_provider": project.input.stitch_provider,
+                "publish_provider": project.input.publish_provider,
             }
+
             record.story_data = {
                 "hook": project.story_hook,
                 "central_claim": project.story_central_claim,

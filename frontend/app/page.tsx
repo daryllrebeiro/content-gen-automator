@@ -84,6 +84,13 @@ export default function HomePage() {
   const [tone, setTone] = useState("curious cinematic documentary");
   const [style, setStyle] = useState("stylized cinematic 3D animation");
 
+  // Modular Lego provider options
+  const [ttsProvider, setTtsProvider] = useState("mock");
+  const [videoProvider, setVideoProvider] = useState("mock");
+  const [stitchProvider, setStitchProvider] = useState("mock");
+  const [publishProvider, setPublishProvider] = useState("mock");
+
+
   // App state
   const [project, setProject] = useState<Project | null>(null);
   const [prompts, setPrompts] = useState<Prompt[]>([]);
@@ -211,7 +218,12 @@ export default function HomePage() {
         visual_preferences: { style },
         duration_seconds: duration,
         autonomous: autoPilot,
+        tts_provider: ttsProvider,
+        video_provider: videoProvider,
+        stitch_provider: stitchProvider,
+        publish_provider: publishProvider,
       });
+
       const firstPrompt = await generatePrompt(created.id);
       setPrompts([firstPrompt]);
       await syncAllData(created.id);
@@ -416,7 +428,7 @@ export default function HomePage() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `${project.input.topic.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-shorts-package.md`;
+      link.download = `${project.topic.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-shorts-package.md`;
       link.click();
       URL.revokeObjectURL(url);
     } catch (err) {
@@ -588,6 +600,40 @@ export default function HomePage() {
               ))}
             </div>
           </fieldset>
+
+          <div className="two-col" style={{ marginTop: "14px" }}>
+            <label>
+              TTS Provider
+              <select value={ttsProvider} onChange={(e) => setTtsProvider(e.target.value)} style={{ width: "100%", padding: "10px", borderRadius: "8px", background: "#0c0c13", border: "1px solid var(--line)", color: "var(--ink)" }}>
+                <option value="mock">Simulated (Mock)</option>
+                <option value="elevenlabs">ElevenLabs TTS</option>
+              </select>
+            </label>
+            <label>
+              Video Generator
+              <select value={videoProvider} onChange={(e) => setVideoProvider(e.target.value)} style={{ width: "100%", padding: "10px", borderRadius: "8px", background: "#0c0c13", border: "1px solid var(--line)", color: "var(--ink)" }}>
+                <option value="mock">Simulated (Mock)</option>
+                <option value="runway">Runway Gen-3</option>
+                <option value="kling">Kling AI</option>
+              </select>
+            </label>
+          </div>
+          <div className="two-col" style={{ margin: "14px 0" }}>
+            <label>
+              Media Stitching
+              <select value={stitchProvider} onChange={(e) => setStitchProvider(e.target.value)} style={{ width: "100%", padding: "10px", borderRadius: "8px", background: "#0c0c13", border: "1px solid var(--line)", color: "var(--ink)" }}>
+                <option value="mock">Simulated (Mock)</option>
+                <option value="ffmpeg">FFmpeg Stitching</option>
+              </select>
+            </label>
+            <label>
+              Distribution / Publish
+              <select value={publishProvider} onChange={(e) => setPublishProvider(e.target.value)} style={{ width: "100%", padding: "10px", borderRadius: "8px", background: "#0c0c13", border: "1px solid var(--line)", color: "var(--ink)" }}>
+                <option value="mock">Simulated (Mock)</option>
+                <option value="youtube">YouTube OAuth2 Upload</option>
+              </select>
+            </label>
+          </div>
 
           {/* Autopilot toggle */}
           <label style={{ display: "flex", alignItems: "center", gap: "10px", margin: "10px 0 20px", cursor: "pointer" }}>
@@ -1017,7 +1063,7 @@ export default function HomePage() {
               <div>
                 <p className="eyebrow" style={{ fontSize: "9px" }}>YOUTUBE SHORTS TITLE</p>
                 <p style={{ fontWeight: 700, fontSize: "18px", margin: 0 }}>
-                  {project.input.topic} — The Story in 30 Seconds!
+                  {project.topic} — The Story in 30 Seconds!
                 </p>
               </div>
               <div>
@@ -1039,7 +1085,7 @@ export default function HomePage() {
               <div>
                 <p className="eyebrow" style={{ fontSize: "9px" }}>PINNED COMMENT</p>
                 <p style={{ color: "var(--muted)", margin: 0 }}>
-                  What surprised you most about {project.input.topic.toLowerCase()}?
+                  What surprised you most about {project.topic.toLowerCase()}?
                 </p>
               </div>
             </div>

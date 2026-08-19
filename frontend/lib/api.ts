@@ -9,7 +9,12 @@ export type ProjectInput = {
   visual_preferences: Record<string, string>;
   duration_seconds: Duration;
   autonomous: boolean;
+  tts_provider: string;
+  video_provider: string;
+  stitch_provider: string;
+  publish_provider: string;
 };
+
 
 
 export type Prompt = {
@@ -47,7 +52,12 @@ export type Project = {
     continuity_rules: string[];
   };
   prompts: Prompt[];
+  tts_provider: string;
+  video_provider: string;
+  stitch_provider: string;
+  publish_provider: string;
 };
+
 
 export type ExportBundle = {
   project_id: string;
