@@ -30,6 +30,9 @@ import {
   YouTubeUploadJob,
   GateReportResponse,
 } from "../lib/api";
+import StatusTracker from "../components/StatusTracker";
+import PartnerEcosystemBar from "../components/PartnerEcosystemBar";
+import GovernanceAuditPanel from "../components/GovernanceAuditPanel";
 
 // ── Constants & Helpers ──────────────────────────────────────────────────────
 
@@ -549,6 +552,7 @@ export default function HomePage() {
           <span className="eyebrow">SHORTS CREATIVE FLOW</span>
           <span className="status">MVP · AUTOMATION ENGINE</span>
         </header>
+        <PartnerEcosystemBar />
         <section className="hero">
           <p className="eyebrow">PHASE 8 PUBLISHING AUTOMATION</p>
           <h1>Stateful Creative Pipeline.</h1>
@@ -687,6 +691,15 @@ export default function HomePage() {
           New Project
         </button>
       </header>
+
+      {/* 5-Partner Hackathon Ecosystem Bar */}
+      <PartnerEcosystemBar />
+
+      {/* Visual Pipeline Tracker */}
+      <StatusTracker status={project.status} autoPilot={autoPilot} />
+
+      {/* IBM watsonx Governance Audit Panel */}
+      <GovernanceAuditPanel projectId={String(project.id)} topic={project.topic} />
 
       {/* Title */}
       <section className="workspace-intro" style={{ paddingBottom: "14px" }}>
