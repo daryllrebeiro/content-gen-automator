@@ -1,0 +1,111 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 0 },
+      "id": 1,
+      "title": "SLO 1: IBM Governance Clearance Rate (>98%)",
+      "type": "gauge",
+      "targets": [
+        {
+          "expr": "sum(rate(ibm_governance_verifications_total{decision=\"passed\"}[1h])) / sum(rate(ibm_governance_verifications_total[1h])) * 100",
+          "legendFormat": "Pass Rate",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 90 },
+              { "color": "green", "value": 98 }
+            ]
+          },
+          "unit": "percent"
+        }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 0 },
+      "id": 2,
+      "title": "SLO 2: Gemini Prompt Latency p95 (<1.5s)",
+      "type": "gauge",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(gemini_prompt_latency_seconds_bucket[1h])) by (le))",
+          "legendFormat": "p95 Latency",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1.0 },
+              { "color": "red", "value": 1.5 }
+            ]
+          },
+          "unit": "s"
+        }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 0 },
+      "id": 3,
+      "title": "SLO 3: Publishing Gate Pass Rate (>99%)",
+      "type": "gauge",
+      "targets": [
+        {
+          "expr": "100 - (sum(rate(agent_publishing_gate_failures_total[1h])) or vector(0))",
+          "legendFormat": "Gate Success",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 6 },
+      "id": 4,
+      "title": "Cost-Per-Video FinOps Ledger ($ USD)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "(sum(rate(agent_tokens_consumed_total{type=\"input\"}[5m])) * 0.0000005) + (sum(rate(agent_tokens_consumed_total{type=\"output\"}[5m])) * 0.0000015)",
+          "legendFormat": "Gemini Inference Cost ($/s)",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD"
+        }
+      }
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["slo", "finops", "grafana-cloud", "ibm-watsonx"],
+  "time": { "from": "now-6h", "to": "now" },
+  "title": "Agentic Cinema Studio - SLO & FinOps Dashboard",
+  "uid": "agentic-cinema-slo-finops",
+  "version": 1
+}

@@ -1,0 +1,24 @@
+run = "bash scripts/replit_start.sh"
+entrypoint = "backend/app/main.py"
+modules = ["python-3.11", "nodejs-20"]
+
+[nix]
+channel = "stable-24_05"
+
+[deployment]
+run = ["bash", "-c", "cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+deploymentTarget = "cloudrun"
+
+[[ports]]
+localPort = 3000
+externalPort = 80
+
+[[ports]]
+localPort = 8000
+externalPort = 8000
+
+[env]
+APP_ENV = "development"
+PROJECT_REPOSITORY = "memory"
+LLM_PROVIDER = "gemini"
+NEXT_PUBLIC_API_BASE_URL = "http://localhost:8000"

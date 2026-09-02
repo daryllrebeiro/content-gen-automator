@@ -1,0 +1,145 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 0 },
+      "id": 1,
+      "title": "Total Video Generation Projects",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "sum(agent_projects_created_total)",
+          "legendFormat": "Projects",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 0 },
+      "id": 2,
+      "title": "Gemini Prompt Generation Latency (p95)",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(gemini_prompt_latency_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95 Latency",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 0 },
+      "id": 3,
+      "title": "Active Production Video Jobs",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "agent_active_production_jobs",
+          "legendFormat": "In Flight",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 0 },
+      "id": 4,
+      "title": "IBM Governance Pass Rate (%)",
+      "type": "gauge",
+      "targets": [
+        {
+          "expr": "sum(rate(ibm_governance_verifications_total{decision=\"passed\"}[5m])) / sum(rate(ibm_governance_verifications_total[5m])) * 100",
+          "legendFormat": "Pass Rate",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 100,
+          "unit": "percent"
+        }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 8 },
+      "id": 5,
+      "title": "Token Economics (Input vs Output Tokens)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(rate(agent_tokens_consumed_total{type=\"input\"}[5m]))",
+          "legendFormat": "Input Tokens/s",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(agent_tokens_consumed_total{type=\"output\"}[5m]))",
+          "legendFormat": "Output Tokens/s",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 8 },
+      "id": 6,
+      "title": "Parallel Search Grounding Queries & Cache Hits",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(rate(parallel_search_queries_total[5m]))",
+          "legendFormat": "Search Queries/s",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(parallel_search_cache_hits_total[5m]))",
+          "legendFormat": "Cache Hits/s",
+          "refId": "B"
+        }
+      ]
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["agentic-cinema", "gemini", "grafana-cloud", "clickhouse", "ibm", "parallel"],
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": ["5s", "10s", "30s", "1m", "5m"]
+  },
+  "timezone": "browser",
+  "title": "Agentic Cinema Studio - Master Observability Dashboard",
+  "uid": "agentic-cinema-studio-v1",
+  "version": 1
+}

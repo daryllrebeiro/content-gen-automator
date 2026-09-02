@@ -6,7 +6,7 @@
     {"name": "Verify Gates", "type": "n8n-nodes-base.httpRequest", "parameters": {"method": "GET", "url": "={{$env.AGENT_API_URL}}/api/integrations/projects/{{$json.project_id}}/publish/gate", "sendHeaders": true, "headerParameters": {"parameters": [{"name": "Authorization", "value": "=Bearer {{$credentials.agentServiceToken}}"}]}}},
     {"name": "If Gates Pass", "type": "n8n-nodes-base.if", "parameters": {"conditions": {"boolean": [{"value1": "={{$json.can_publish}}", "value2": true}]}}},
     {"name": "Download Manifest", "type": "n8n-nodes-base.httpRequest", "parameters": {"method": "GET", "url": "={{$env.AGENT_API_URL}}/api/integrations/exports/{{$node[\"Webhook Trigger\"].json[\"manifest_id\"]}}/download?token={{$node[\"Webhook Trigger\"].json[\"download_token\"]}}", "sendHeaders": true, "headerParameters": {"parameters": [{"name": "Authorization", "value": "=Bearer {{$credentials.agentServiceToken}}"}]}}},
-    {"name": "Mock Video Render & YouTube Upload", "type": "n8n-nodes-base.httpRequest", "parameters": {"method": "POST", "url": "https://httpbin.org/post", "sendBody": true, "jsonBody": "={ \"title\": \"{{$json.publishing.title}}\", \"description\": \"{{$json.publishing.description}}\", \"status\": \"public\" }"}},
+    {"name": "Gemini Omni Flash Video Generation", "type": "n8n-nodes-base.httpRequest", "parameters": {"method": "POST", "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent?key={{$env.GEMINI_API_KEY}}", "sendBody": true, "jsonBody": "={ \"contents\": [{ \"parts\": [{ \"text\": \"Generate video from prompt: {{$json.publishing.title}}\" }] }] }"}},
     {"name": "Send Success Callback", "type": "n8n-nodes-base.httpRequest", "parameters": {"method": "POST", "url": "={{$env.AGENT_API_URL}}/api/integrations/youtube-upload-jobs/{{$node[\"Webhook Trigger\"].json[\"job_id\"]}}/callback", "sendHeaders": true, "headerParameters": {"parameters": [{"name": "Authorization", "value": "=Bearer {{$credentials.agentServiceToken}}"}, {"name": "X-Request-ID", "value": "={{$execution.id}}"}]}, "sendBody": true, "jsonBody": "={ \"status\": \"PUBLISHED\", \"youtube_video_id\": \"mock-yt-123\", \"youtube_url\": \"https://youtube.com/watch?v=mock-yt-123\" }"}},
     {"name": "Send Failure Callback", "type": "n8n-nodes-base.httpRequest", "parameters": {"method": "POST", "url": "={{$env.AGENT_API_URL}}/api/integrations/youtube-upload-jobs/{{$node[\"Webhook Trigger\"].json[\"job_id\"]}}/callback", "sendHeaders": true, "headerParameters": {"parameters": [{"name": "Authorization", "value": "=Bearer {{$credentials.agentServiceToken}}"}, {"name": "X-Request-ID", "value": "={{$execution.id}}"}]}, "sendBody": true, "jsonBody": "={ \"status\": \"FAILED_PERMANENT\", \"error\": \"YouTube publish gates rejected the project package.\", \"error_class\": \"GateCheckFailure\" }"}}
   ],
@@ -19,7 +19,7 @@
         [{"node": "Send Failure Callback", "type": "main", "index": 0}]
       ]
     },
-    "Download Manifest": {"main": [[{"node": "Mock Video Render & YouTube Upload", "type": "main", "index": 0}]]},
-    "Mock Video Render & YouTube Upload": {"main": [[{"node": "Send Success Callback", "type": "main", "index": 0}]]}
+    "Download Manifest": {"main": [[{"node": "Gemini Omni Flash Video Generation", "type": "main", "index": 0}]]},
+    "Gemini Omni Flash Video Generation": {"main": [[{"node": "Send Success Callback", "type": "main", "index": 0}]]}
   }
 }
