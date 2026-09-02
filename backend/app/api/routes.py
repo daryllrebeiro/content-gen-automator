@@ -53,6 +53,10 @@ from app.services.delivery_service import DeliveryService
 from app.services.production_service import ProductionService
 from app.services.publishing_gate_service import PublishingGateService
 from app.services.youtube_metadata_validator import YouTubeMetadataValidator
+from app.adapters.grafana_telemetry import telemetry
+from app.adapters.parallel_search import parallel_search
+from app.adapters.clickhouse_analytics import clickhouse_analytics
+from app.adapters.ibm_governance import ibm_governance
 
 
 router = APIRouter()
@@ -269,6 +273,9 @@ def create_project(request: ProjectCreateRequest) -> ProjectResponse:
             publish_provider=request.publish_provider,
         )
     )
+    # Partner Integrations: Grafana Observability + ClickHouse Analytics
+    telemetry.record_project_created(request.topic)
+    clickhouse_analytics.log_event("project_created", str(project.id), {"topic": request.topic, "tone": request.tone})
     return _project_response(project)
 
 
@@ -287,7 +294,25 @@ def get_project(project_id: UUID) -> ProjectResponse:
 )
 def generate_first_prompt(project_id: UUID) -> PromptResponse:
     try:
-        return _prompt_response(project_service.generate_next(project_id))
+        t0 = time.time()
+        prompt = project_service.generate_next(project_id)
+        latency = time.time() - t0
+        
+        # Partner Integrations: Grafana Telemetry + IBM Watsonx Governance + ClickHouse
+        telemetry.record_prompt_generation(
+            duration_seconds=latency,
+            input_tokens=prompt.estimated_input_tokens or 250,
+            output_tokens=prompt.estimated_output_tokens or 150
+        )
+        ibm_governance.audit_prompt(prompt.text, project_id=str(project_id))
+        clickhouse_analytics.log_scene_telemetry(
+            project_id=str(project_id),
+            scene_number=prompt.scene_number,
+            version=prompt.version_number,
+            word_count=prompt.narration_word_count,
+            tone="cinematic"
+        )
+        return _prompt_response(prompt)
     except ProjectNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Project not found") from exc
     except ProjectStateError as exc:
@@ -310,7 +335,24 @@ def generate_next_prompt(project_id: UUID) -> PromptResponse:
 )
 def regenerate_prompt(project_id: UUID, scene_number: int) -> PromptResponse:
     try:
-        return _prompt_response(project_service.regenerate(project_id, scene_number))
+        t0 = time.time()
+        prompt = project_service.regenerate(project_id, scene_number)
+        latency = time.time() - t0
+        
+        telemetry.record_prompt_generation(
+            duration_seconds=latency,
+            input_tokens=prompt.estimated_input_tokens or 300,
+            output_tokens=prompt.estimated_output_tokens or 180
+        )
+        ibm_governance.audit_prompt(prompt.text, project_id=str(project_id))
+        clickhouse_analytics.log_scene_telemetry(
+            project_id=str(project_id),
+            scene_number=prompt.scene_number,
+            version=prompt.version_number,
+            word_count=prompt.narration_word_count,
+            tone="regenerated"
+        )
+        return _prompt_response(prompt)
     except ProjectNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Project not found") from exc
     except ProjectStateError as exc:
@@ -903,6 +945,10 @@ def integration_publish(
         project = project_service.repository.get(project_id)
     except ProjectNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Project not found") from exc
+
+    # Mock enterprise RBAC check on final publishing gate
+    if request.actor.lower() == "guest" or "intern" in request.actor.lower():
+        raise HTTPException(status_code=403, detail="Enterprise RBAC: Actor does not have publish permissions.")
 
     # Idempotency check
     existing_key = getattr(project_service.repository, "get_idempotency", lambda _: None)(request.idempotency_key)
