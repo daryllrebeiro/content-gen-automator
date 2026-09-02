@@ -57,6 +57,8 @@ from app.adapters.grafana_telemetry import telemetry
 from app.adapters.parallel_search import parallel_search
 from app.adapters.clickhouse_analytics import clickhouse_analytics
 from app.adapters.ibm_governance import ibm_governance
+from app.agents.orchestrator_agent import orchestrator_agent
+from app.services.compliance_certificate_service import compliance_certificate_service
 
 
 router = APIRouter()
@@ -295,16 +297,40 @@ def get_project(project_id: UUID) -> ProjectResponse:
 def generate_first_prompt(project_id: UUID) -> PromptResponse:
     try:
         t0 = time.time()
+        project = project_service.repository.get(project_id)
+        current_scene_idx = len(project.prompts) + 1
+        
+        # 1. Coordinate reasoning via ADK Multi-Agent Orchestrator
+        agent_trace = orchestrator_agent.orchestrate_scene_generation(
+            project_id=str(project_id),
+            topic=project.input.topic,
+            scene_number=current_scene_idx,
+            total_scenes=len(project.scenes),
+            tone=project.input.tone or "cinematic",
+            facts=project.input.facts or []
+        )
+
+        # 2. Advance Domain FSM & Generate Prompt
         prompt = project_service.generate_next(project_id)
         latency = time.time() - t0
         
-        # Partner Integrations: Grafana Telemetry + IBM Watsonx Governance + ClickHouse
+        # 3. IBM watsonx Governance Compliance Gate (Enforced & Blocking)
+        gov_audit = ibm_governance.audit_prompt(
+            prompt_text=f"{project.input.topic} {prompt.text}",
+            project_id=str(project_id)
+        )
+        if gov_audit.get("decision") != "passed":
+            raise HTTPException(
+                status_code=422,
+                detail=f"IBM watsonx.governance safety violation: {gov_audit.get('policy_checks', {}).get('brand_safety') or gov_audit.get('copyright_risk') or 'High risk score'}. Scene progression halted."
+            )
+
+        # 4. Partner Telemetry Collection
         telemetry.record_prompt_generation(
             duration_seconds=latency,
             input_tokens=prompt.estimated_input_tokens or 250,
             output_tokens=prompt.estimated_output_tokens or 150
         )
-        ibm_governance.audit_prompt(prompt.text, project_id=str(project_id))
         clickhouse_analytics.log_scene_telemetry(
             project_id=str(project_id),
             scene_number=prompt.scene_number,
@@ -336,15 +362,33 @@ def generate_next_prompt(project_id: UUID) -> PromptResponse:
 def regenerate_prompt(project_id: UUID, scene_number: int) -> PromptResponse:
     try:
         t0 = time.time()
+        project = project_service.repository.get(project_id)
+        
+        # ADK Orchestration trace
+        orchestrator_agent.orchestrate_scene_generation(
+            project_id=str(project_id),
+            topic=project.input.topic,
+            scene_number=scene_number,
+            total_scenes=len(project.scenes),
+            tone="regenerated"
+        )
+
         prompt = project_service.regenerate(project_id, scene_number)
         latency = time.time() - t0
         
+        # IBM watsonx Governance gate check
+        gov_audit = ibm_governance.audit_prompt(prompt.text, project_id=str(project_id))
+        if gov_audit.get("decision") != "passed":
+            raise HTTPException(
+                status_code=422,
+                detail=f"IBM watsonx.governance safety violation: {gov_audit.get('copyright_risk') or 'High risk score'}. Regeneration halted."
+            )
+
         telemetry.record_prompt_generation(
             duration_seconds=latency,
             input_tokens=prompt.estimated_input_tokens or 300,
             output_tokens=prompt.estimated_output_tokens or 180
         )
-        ibm_governance.audit_prompt(prompt.text, project_id=str(project_id))
         clickhouse_analytics.log_scene_telemetry(
             project_id=str(project_id),
             scene_number=prompt.scene_number,
@@ -357,6 +401,32 @@ def regenerate_prompt(project_id: UUID, scene_number: int) -> PromptResponse:
         raise HTTPException(status_code=404, detail="Project not found") from exc
     except ProjectStateError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.get(
+    "/api/projects/{project_id}/compliance-certificate",
+    tags=["governance"],
+)
+def get_project_compliance_certificate(project_id: UUID):
+    try:
+        project = project_service.repository.get(project_id)
+        audit_records = [
+            ibm_governance.audit_prompt(prompt.text, project_id=str(project_id))
+            for prompt in project.prompts.values()
+        ] if project.prompts else [
+            ibm_governance.audit_prompt(f"Scene for topic: {project.input.topic}", project_id=str(project_id))
+        ]
+        certificate = compliance_certificate_service.generate_certificate(
+            project_id=str(project_id),
+            topic=project.input.topic,
+            policy_pack_id="general_audience",
+            audit_records=audit_records,
+            manifest_id=f"manifest-{str(project_id)[:8]}"
+        )
+        certificate["is_signature_valid"] = compliance_certificate_service.verify_certificate(certificate)
+        return certificate
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
 
 
 @router.get(

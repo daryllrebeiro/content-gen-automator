@@ -82,9 +82,16 @@ YouTube Shorts and TikTok algorithms heavily penalize content that feels rushed,
 ### 1.2 Multi-Agent Prompt Synthesizer (Gemini 3.7 Flash)
 
 #### **What It Is:**
-A specialized LLM agent pipeline that crafts structured prompt payloads for next-gen video generators (e.g., Gemini Omni Flash, Runway Gen-3, Kling AI).
+A specialized Google Cloud Agent Development Kit (`google-adk>=2.8.0`) multi-agent pipeline that crafts structured prompt payloads for next-gen video generators (e.g., Gemini Omni Flash, Runway Gen-3, Kling AI).
 
 #### **How It Works:**
+* **Official ADK Primitives:** All 7 studio agents (`OrchestratorAgent`, `ResearchAgent`, `ScreenwriterAgent`, `CinematographerAgent`, `ContinuityAgent`, `GovernanceAgent`, `PublishingAgent`) subclass official `google.adk.agents.LlmAgent`, declaring typed tool contracts and instructions.
+* **A2A Coordination Flow:** `OrchestratorAgent` coordinates sequential Agent2Agent (A2A) reasoning traces:
+  1. `ResearchAgent`: Fact grounding via Parallel Search & style guide lookup via Vertex AI Search.
+  2. `ContinuityAgent`: Memory Bank seed locking and character bibles.
+  3. `ScreenwriterAgent`: Word-budgeted voiceover scripts (~2.5 words/second pacing).
+  4. `CinematographerAgent`: Visual diffusion prompt synthesis with camera/lighting directives.
+  5. `GovernanceAgent`: Dual-pass IBM watsonx safety and compliance certification.
 * Prompts are generated with strict JSON schemas containing:
   * **Visual Directives:** Lighting (volumetric, rim), camera angles (macro, wide-pan, tracking), color palette, and character motion.
   * **Narration Script:** Exact word-budgeted voiceover lines.
@@ -93,10 +100,13 @@ A specialized LLM agent pipeline that crafts structured prompt payloads for next
 * Built-in retry and schema repair mechanisms (`backend/app/providers/reliability.py`) automatically fix and re-parse invalid model outputs without crashing the pipeline.
 
 #### **Why It Works That Way:**
-Generative video engines require extremely descriptive camera and lighting terminology. Generic descriptions result in flat, low-quality video. Gemini 3.7 Flash acts as a seasoned Cinematographer and Director of Photography, translating brief topics into director-level instructions.
+Generative video engines require extremely descriptive camera and lighting terminology. Generic descriptions result in flat, low-quality video. Gemini 3.7 Flash powered by the Google Cloud ADK acts as a seasoned Cinematographer and Director of Photography, translating brief topics into director-level instructions.
 
 #### **Why We Did It:**
-To bridge the gap between non-technical storytellers and complex video diffusion models. Creators input high-level concepts; our agent constructs studio-grade camera instructions.
+To bridge the gap between non-technical storytellers and complex video diffusion models. Creators input high-level concepts; our official ADK agents construct studio-grade camera instructions and enforce brand governance.
+
+> [!NOTE]
+> **Runtime Architecture Note:** The entire ADK agent workforce executes in-process within the FastAPI service. Vertex AI Agent Engine deployment is packaged via `scripts/deploy-agent-engine.sh` with simulated registration output in this build rather than hosting on an external Reasoning Engine cluster. Memory Bank and Vertex Search grounding operate as deterministic in-process adapters for studio character bibles and pacing constraints.
 
 ---
 
@@ -312,7 +322,7 @@ Enterprise brands cannot risk automated agents publishing content that violates 
 ---
 
 ### 4.2 Automated Testing & Verification Suite
-* **62 Unit Tests Passing:** Located in `backend/tests/` covering:
+* **75 Unit & Contract Tests Passing:** Located in `backend/tests/` covering:
   * Partner integrations (`test_partner_integrations.py`)
   * Publishing gates (`test_publishing_gates.py`)
   * Production callbacks & idempotency (`test_production.py`)

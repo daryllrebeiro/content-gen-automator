@@ -1,13 +1,13 @@
 from typing import Dict, Any, List
+from google.adk.agents import LlmAgent
+from app.agents.tools.screenwriting_tools import draft_narration_tool
 
-class ScreenwriterAgent:
+class ScreenwriterAgent(LlmAgent):
     """
     ADK Sub-Agent: Screenwriter & Pacing Specialist.
     Drafts high-retention narration scripts adhering to strict word-budget constraints (~2.5 words/sec).
     """
-    def __init__(self, model_name: str = "gemini-3.7-flash"):
-        self.model_name = model_name
-        self.role = "Screenwriter & Narration Pacing Specialist"
+    role: str = "Screenwriter & Narration Pacing Specialist"
 
     def draft_narration(self, scene_number: int, total_scenes: int, topic: str, facts: List[str], target_seconds: int = 10) -> Dict[str, Any]:
         """
@@ -35,4 +35,9 @@ class ScreenwriterAgent:
         }
 
 
-screenwriter_agent = ScreenwriterAgent()
+screenwriter_agent = ScreenwriterAgent(
+    name="screenwriter_agent",
+    model="gemini-2.5-flash",
+    instruction="Draft high-retention cinematic voiceover narration within strict duration word budgets.",
+    tools=[draft_narration_tool]
+)

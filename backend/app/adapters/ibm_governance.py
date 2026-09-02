@@ -5,6 +5,7 @@ from typing import Dict, List, Any, Optional
 import httpx
 from app.adapters.grafana_telemetry import telemetry
 from app.adapters.clickhouse_analytics import clickhouse_analytics
+from app.services.policy_pack_service import policy_pack_service
 
 class IBMGovernanceAdapter:
     """
@@ -22,19 +23,32 @@ class IBMGovernanceAdapter:
 
     def audit_prompt(self, prompt_text: str, visual_style: str = "", project_id: str = "", policy_pack: str = "general_audience") -> Dict[str, Any]:
         """
-        Audits a generated visual prompt for compliance, copyright risks, and brand safety.
+        Audits a generated visual prompt for compliance, copyright risks, and brand safety,
+        strictly enforcing the active PolicyPack thresholds.
         """
         start_time = time.time()
+        pack = policy_pack_service.get_policy_pack(policy_pack)
         
         # Copyright / IP likeness patterns
         copyright_triggers = ["mickey mouse", "batman", "marvel", "disney", "superman", "pikachu", "nike logo"]
         forbidden_terms = ["violence", "nsfw", "gore", "hate speech", "explicit", "trademark_infringement"]
         
+        # Stricter triggers for Kids & Family
+        if policy_pack == "kids_family":
+            forbidden_terms.extend(["scary", "monster", "dark abyss", "frightening", "weapon", "blood"])
+
         found_copyright = [term for term in copyright_triggers if term in prompt_text.lower()]
         found_safety = [term for term in forbidden_terms if term in prompt_text.lower()]
         
-        passed = (len(found_copyright) == 0 and len(found_safety) == 0)
-        risk_score = 0.03 if passed else 0.89
+        # Compute dynamic risk score
+        base_risk = 0.02
+        if found_copyright:
+            base_risk += 0.45 * len(found_copyright)
+        if found_safety:
+            base_risk += 0.50 * len(found_safety)
+        
+        risk_score = min(1.0, base_risk)
+        passed = (len(found_copyright) == 0 and len(found_safety) == 0 and risk_score <= pack.max_risk_score_allowed)
         
         audit_id = hashlib.sha256(f"ibm_audit:{project_id}:{prompt_text}:{time.time()}".encode()).hexdigest()[:16]
 
@@ -43,16 +57,17 @@ class IBMGovernanceAdapter:
             "audit_id": f"ibm-gov-{audit_id}",
             "decision": "passed" if passed else "flagged",
             "policy_pack": policy_pack,
+            "max_risk_allowed": pack.max_risk_score_allowed,
             "safety_rating": "PG-Universal" if passed else "Requires-Remediation",
-            "risk_score": risk_score,
+            "risk_score": round(risk_score, 3),
             "toxicity_score": 0.01 if passed else 0.85,
             "copyright_risk": "Low (Original Composition)" if not found_copyright else f"High Risk: Detected reference to {found_copyright}",
             "pii_detected": False,
             "policy_checks": {
-                "brand_safety": "Compliant" if not found_safety else "Flagged: Sensitive vocabulary",
-                "copyright_clearance": "Clear" if not found_copyright else "Flagged: IP likeness hazard",
+                "brand_safety": "Compliant" if not found_safety else f"Flagged: Sensitive vocabulary {found_safety}",
+                "copyright_clearance": "Clear" if not found_copyright else f"Flagged: IP likeness hazard {found_copyright}",
                 "hallucination_index": "Low (<5%)",
-                "content_suitability": "Universal YouTube Shorts Standard"
+                "content_suitability": f"Targeting {pack.name} Standard"
             },
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "latency_ms": round((time.time() - start_time) * 1000, 2)

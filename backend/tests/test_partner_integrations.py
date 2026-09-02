@@ -93,3 +93,36 @@ def test_full_project_lifecycle_triggers_partner_telemetry():
     status = status_res.json()["partners"]
     assert status["grafana_labs"]["projects_created"] >= 1
     assert status["clickhouse"]["total_events_recorded"] >= 1
+
+
+def test_compliance_certificate_endpoint():
+    # Create project and generate prompt
+    created = client.post(
+        "/api/projects",
+        json={"topic": "Quantum Computing Frontiers", "duration_seconds": 10},
+    )
+    assert created.status_code == 200
+    project_id = created.json()["id"]
+    client.post(f"/api/projects/{project_id}/generate")
+
+    # Fetch live compliance certificate
+    cert_res = client.get(f"/api/projects/{project_id}/compliance-certificate")
+    assert cert_res.status_code == 200
+    cert = cert_res.json()
+    assert cert["governance_provider"] == "IBM watsonx.governance"
+    assert cert["is_signature_valid"] is True
+    assert cert["signature_algorithm"] == "HMAC-SHA256"
+
+
+def test_governance_violation_halts_generation():
+    bad_created = client.post(
+        "/api/projects",
+        json={"topic": "Extreme violence and trademark_infringement against brand", "duration_seconds": 10},
+    )
+    assert bad_created.status_code == 200
+    bad_id = bad_created.json()["id"]
+    
+    # Generation must be halted by IBM watsonx governance gate with 422
+    bad_gen = client.post(f"/api/projects/{bad_id}/generate")
+    assert bad_gen.status_code == 422
+    assert "IBM watsonx.governance safety violation" in bad_gen.json()["detail"]

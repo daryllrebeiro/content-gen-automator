@@ -25,7 +25,7 @@ class Settings:
             raise RuntimeError("DATABASE_URL is required when PROJECT_REPOSITORY=postgres.")
         if provider == "gemini" and not gemini_key:
             raise RuntimeError("GEMINI_API_KEY is required when LLM_PROVIDER=gemini.")
-        origins = tuple(item.strip() for item in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",") if item.strip())
+        origins = tuple(item.strip() for item in os.getenv("CORS_ORIGINS", "http://localhost:3000,https://content-gen-automator.replit.app").split(",") if item.strip())
         return cls(
             app_env=os.getenv("APP_ENV", "development"),
             log_level=os.getenv("LOG_LEVEL", "INFO"),

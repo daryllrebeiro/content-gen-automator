@@ -6,7 +6,7 @@ modules = ["python-3.11", "nodejs-20"]
 channel = "stable-24_05"
 
 [deployment]
-run = ["bash", "-c", "cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+run = ["bash", "-c", "cd backend && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
 deploymentTarget = "cloudrun"
 
 [[ports]]

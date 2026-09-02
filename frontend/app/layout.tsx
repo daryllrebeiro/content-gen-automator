@@ -6,6 +6,8 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 const outfit = Outfit({ subsets: ["latin"], variable: "--font-outfit" });
 
+import FaroInitializer from "../components/FaroInitializer";
+
 export const metadata: Metadata = {
   title: "Shorts Prompt Agent | Automation Engine",
   description: "Create consistent animated YouTube Shorts prompts.",
@@ -14,7 +16,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <html lang="en" className={`${inter.variable} ${outfit.variable}`}>
-      <body>{children}</body>
+      <body>
+        <FaroInitializer />
+        {children}
+      </body>
     </html>
   );
 }

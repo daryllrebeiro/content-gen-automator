@@ -1,14 +1,14 @@
 from typing import Dict, Any, List, Optional
+from google.adk.agents import LlmAgent
+from app.agents.tools.cinematography_tools import synthesize_visual_prompt_tool
 
-class CinematographerAgent:
+class CinematographerAgent(LlmAgent):
     """
     ADK Sub-Agent: Cinematographer & Visual Directive Specialist.
     Translates script moments into rich camera, lighting, and movement directives for diffusion video models.
     Supports multimodal mood-board frame input.
     """
-    def __init__(self, model_name: str = "gemini-3.7-flash"):
-        self.model_name = model_name
-        self.role = "Cinematographer & Visual Prompt Synthesizer"
+    role: str = "Cinematographer & Visual Prompt Synthesizer"
 
     def synthesize_visual_prompt(
         self,
@@ -43,4 +43,9 @@ class CinematographerAgent:
         }
 
 
-cinematographer_agent = CinematographerAgent()
+cinematographer_agent = CinematographerAgent(
+    name="cinematographer_agent",
+    model="gemini-2.5-flash",
+    instruction="Synthesize visual camera, lighting, and movement directives for video diffusion pipelines.",
+    tools=[synthesize_visual_prompt_tool]
+)

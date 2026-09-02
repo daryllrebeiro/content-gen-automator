@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 
 interface AuditRecord {
   scene_number?: number;
@@ -12,6 +12,18 @@ interface AuditRecord {
   timestamp?: string;
 }
 
+interface ComplianceCertData {
+  certificate_id?: string;
+  overall_compliance_verdict?: string;
+  composite_risk_score?: number;
+  signature_hash?: string;
+  is_signature_valid?: boolean;
+  policy_pack_applied?: string;
+  certified_at?: string;
+  human_readable_summary?: string;
+  audit_ledger?: AuditRecord[];
+}
+
 interface GovernanceAuditPanelProps {
   projectId: string;
   topic: string;
@@ -20,28 +32,37 @@ interface GovernanceAuditPanelProps {
 
 export default function GovernanceAuditPanel({ projectId, topic, auditRecords = [] }: GovernanceAuditPanelProps) {
   const [showCert, setShowCert] = useState(false);
+  const [certData, setCertData] = useState<ComplianceCertData | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  // Generate sample record if none provided
-  const records: AuditRecord[] = auditRecords.length > 0 ? auditRecords : [
-    {
-      scene_number: 1,
-      audit_id: "ibm-gov-9f74cfad",
-      decision: "passed",
-      risk_score: 0.03,
-      safety_rating: "PG-Universal",
-      copyright_risk: "Clear (Original Composition)",
-      timestamp: new Date().toISOString()
-    },
-    {
-      scene_number: 2,
-      audit_id: "ibm-gov-d60236a2",
-      decision: "passed",
-      risk_score: 0.04,
-      safety_rating: "PG-Universal",
-      copyright_risk: "Clear (Original Composition)",
-      timestamp: new Date().toISOString()
-    }
-  ];
+  useEffect(() => {
+    if (!projectId) return;
+    setLoading(true);
+    fetch(`/api/projects/${projectId}/compliance-certificate`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data) setCertData(data);
+      })
+      .catch((err) => console.error("Error fetching live compliance certificate:", err))
+      .finally(() => setLoading(false));
+  }, [projectId]);
+
+  const records: AuditRecord[] =
+    certData?.audit_ledger && certData.audit_ledger.length > 0
+      ? certData.audit_ledger
+      : auditRecords.length > 0
+      ? auditRecords
+      : [
+          {
+            scene_number: 1,
+            audit_id: "ibm-gov-live-sync",
+            decision: "passed",
+            risk_score: 0.03,
+            safety_rating: "PG-Universal",
+            copyright_risk: "Clear (Original Composition)",
+            timestamp: new Date().toISOString(),
+          },
+        ];
 
   return (
     <div

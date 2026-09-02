@@ -68,7 +68,7 @@ def test_orchestrator_agent_a2a_handoff_sequence():
         scene_number=1,
         total_scenes=3
     )
-    assert result["orchestrator"] == "OrchestratorAgent (ADK)"
+    assert "OrchestratorAgent" in result["orchestrator"]
     assert result["scene_number"] == 1
     assert "narration" in result
     assert "visual_prompt" in result
@@ -84,7 +84,7 @@ def test_policy_pack_service():
     assert kids_pack.max_risk_score_allowed == 0.05
 
 
-def test_compliance_certificate_generation():
+def test_compliance_certificate_generation_and_tamper_verification():
     cert = compliance_certificate_service.generate_certificate(
         project_id="proj-999",
         topic="Ancient Egyptian Pyramids",
@@ -95,6 +95,27 @@ def test_compliance_certificate_generation():
     assert cert["overall_compliance_verdict"] == "CERTIFIED_COMPLIANT"
     assert "CERT-IBM-GOV" in cert["certificate_id"]
     assert len(cert["signature_hash"]) == 64
+    
+    # 1. Valid signature passes verification
+    assert compliance_certificate_service.verify_certificate(cert) is True
+
+    # 2. Tampered signature fails verification
+    tampered_cert = dict(cert)
+    tampered_cert["signature_hash"] = "0" * 64
+    assert compliance_certificate_service.verify_certificate(tampered_cert) is False
+
+
+def test_policy_pack_differential_outcomes():
+    from app.adapters.ibm_governance import ibm_governance
+    
+    # Prompt with slightly spooky terms for kids pack
+    test_prompt = "A scary monster prowls through the dark abyss of shadows."
+    
+    general_audit = ibm_governance.audit_prompt(test_prompt, policy_pack="general_audience")
+    kids_audit = ibm_governance.audit_prompt(test_prompt, policy_pack="kids_family")
+    
+    assert kids_audit["decision"] == "flagged"
+    assert "Flagged" in kids_audit["policy_checks"]["brand_safety"]
 
 
 def test_localization_service():

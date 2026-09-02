@@ -1,15 +1,13 @@
 from typing import Dict, Any, List
+from google.adk.agents import LlmAgent
 from app.agents.tools.publishing_tools import check_publishing_gates_tool
 
-class PublishingAgent:
+class PublishingAgent(LlmAgent):
     """
     ADK Sub-Agent: Publishing Gate & YouTube Distribution Specialist.
     Executes 7 fail-closed gates, verifies compliance certificates, and schedules YouTube releases.
     """
-    def __init__(self, model_name: str = "gemini-3.7-flash"):
-        self.model_name = model_name
-        self.role = "Publishing Gates & Distribution Officer"
-        self.tools = [check_publishing_gates_tool]
+    role: str = "Publishing Gates & Distribution Officer"
 
     def verify_readiness(self, project_id: str) -> Dict[str, Any]:
         """
@@ -24,4 +22,9 @@ class PublishingAgent:
         }
 
 
-publishing_agent = PublishingAgent()
+publishing_agent = PublishingAgent(
+    name="publishing_agent",
+    model="gemini-2.5-flash",
+    instruction="Verify all 7 fail-closed publishing gates and certify compliance before distribution.",
+    tools=[check_publishing_gates_tool]
+)

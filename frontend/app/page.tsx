@@ -86,6 +86,32 @@ export default function HomePage() {
   const [duration, setDuration] = useState<Duration>(30);
   const [tone, setTone] = useState("curious cinematic documentary");
   const [style, setStyle] = useState("stylized cinematic 3D animation");
+  const [discoveringTopic, setDiscoveringTopic] = useState(false);
+
+  const discoverTopics = async () => {
+    setDiscoveringTopic(true);
+    try {
+      const res = await fetch("/api/research/recommend-topics", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ niche: "nature & deep science mysteries" })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.recommended_topics && data.recommended_topics.length > 0) {
+          const top = data.recommended_topics[0];
+          setTopic(top.topic);
+          setTone("curious cinematic documentary");
+          setStyle(top.visual_concept || "hyper-detailed 4K cinematic animation");
+          setFactsInput("Deep sea organisms generate living light through luciferin oxidation.\nBioluminescence serves for camouflage, mating, and luring prey.");
+        }
+      }
+    } catch (err) {
+      console.error("Error discovering topics:", err);
+    } finally {
+      setDiscoveringTopic(false);
+    }
+  };
 
   // Modular Lego provider options
   const [ttsProvider, setTtsProvider] = useState("mock");
@@ -562,7 +588,26 @@ export default function HomePage() {
         </section>
         <form className="form-card" onSubmit={startProject}>
           <label>
-            Short Topic
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+              <span>Short Topic</span>
+              <button
+                type="button"
+                onClick={discoverTopics}
+                disabled={discoveringTopic}
+                style={{
+                  fontSize: "11px",
+                  padding: "4px 9px",
+                  background: "rgba(56, 189, 248, 0.12)",
+                  border: "1px solid rgba(56, 189, 248, 0.35)",
+                  color: "#38bdf8",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  fontWeight: 600
+                }}
+              >
+                {discoveringTopic ? "✨ Discovering..." : "✨ Discover Trending (Parallel Grounding)"}
+              </button>
+            </div>
             <textarea
               required
               minLength={3}
@@ -701,11 +746,30 @@ export default function HomePage() {
       {/* IBM watsonx Governance Audit Panel */}
       <GovernanceAuditPanel projectId={String(project.id)} topic={project.topic} />
 
-      {/* Title */}
-      <section className="workspace-intro" style={{ paddingBottom: "14px" }}>
-        <p className="eyebrow">TOPIC BRIEF</p>
-        <h1>{project.topic}</h1>
-        {project.story_hook && <p className="lead">{project.story_hook}</p>}
+      {/* Title & Audit Header */}
+      <section className="workspace-intro" style={{ paddingBottom: "14px", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <p className="eyebrow">TOPIC BRIEF</p>
+          <h1>{project.topic}</h1>
+          {project.story_hook && <p className="lead">{project.story_hook}</p>}
+        </div>
+        <button
+          onClick={() => {
+            window.open(`/api/projects/${project.id}/audit-log/export`, "_blank");
+          }}
+          style={{
+            fontSize: "12px",
+            padding: "6px 12px",
+            background: "rgba(168, 85, 247, 0.1)",
+            border: "1px solid rgba(168, 85, 247, 0.3)",
+            borderRadius: "6px",
+            color: "#c084fc",
+            cursor: "pointer",
+            marginTop: "10px"
+          }}
+        >
+          📥 Export SOC2 Audit Log
+        </button>
       </section>
 
       {/* Autopilot Log Dashboard */}

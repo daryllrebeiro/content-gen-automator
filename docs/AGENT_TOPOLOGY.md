@@ -1,6 +1,6 @@
 # 🤖 ADK Multi-Agent Topology & Agent2Agent (A2A) Protocols
 
-This document details the multi-agent hierarchy built with the **Google Cloud Agent Development Kit (ADK)** and deployed on **Gemini Enterprise Agent Platform / Agent Engine**.
+This document details the multi-agent hierarchy built with the **Google Cloud Agent Development Kit (ADK 2.8.0)**. In this release, the complete ADK multi-agent tree executes in-process within the FastAPI service; deployment to Vertex AI Agent Engine is packaged via `scripts/deploy-agent-engine.sh` with simulated registration output.
 
 ---
 
