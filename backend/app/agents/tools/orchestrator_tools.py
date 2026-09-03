@@ -21,7 +21,8 @@ def delegate_screenplay_task(
     scene_number: int,
     total_scenes: int,
     facts: Optional[List[str]] = None,
-    target_seconds: int = 10
+    target_seconds: int = 10,
+    model_tier: str = "flagship"
 ) -> Dict[str, Any]:
     """
     Delegates scriptwriting and word-budgeted narration pacing to ScreenwriterAgent (ADK A2A handoff).
@@ -32,8 +33,9 @@ def delegate_screenplay_task(
         total_scenes: Total scenes in project.
         facts: Grounded facts to incorporate.
         target_seconds: Desired narration duration.
+        model_tier: LLM model tier ("fast_draft" vs "flagship").
     """
-    return screenwriter_agent.draft_narration(scene_number, total_scenes, topic, facts or [], target_seconds)
+    return screenwriter_agent.draft_narration(scene_number, total_scenes, topic, facts or [], target_seconds, model_tier)
 
 def delegate_cinematography_task(
     scene_number: int,

@@ -154,4 +154,13 @@ class PublishingGateService:
                 f"Upload job {active_upload.job_id} is already in UPLOADING state."
             )
 
+        # Gate 8: multi-platform export integrity
+        target_platforms = getattr(project.input, "target_platforms", [])
+        if target_platforms and hasattr(project, "platform_exports") and project.platform_exports:
+            for plat in target_platforms:
+                plat_key = plat.value if hasattr(plat, "value") else str(plat)
+                export_rec = project.platform_exports.get(plat_key)
+                if not export_rec or export_rec.export_status != "COMPLETED":
+                    failed.append(f"Platform target '{plat_key}' is missing completed media export.")
+
         return GateReport(can_publish=len(failed) == 0, failed_gates=failed)

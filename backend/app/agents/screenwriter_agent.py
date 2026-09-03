@@ -9,10 +9,21 @@ class ScreenwriterAgent(LlmAgent):
     """
     role: str = "Screenwriter & Narration Pacing Specialist"
 
-    def draft_narration(self, scene_number: int, total_scenes: int, topic: str, facts: List[str], target_seconds: int = 10) -> Dict[str, Any]:
+    def draft_narration(
+        self,
+        scene_number: int,
+        total_scenes: int,
+        topic: str,
+        facts: List[str],
+        target_seconds: int = 10,
+        model_tier: str = "flagship"
+    ) -> Dict[str, Any]:
         """
-        Synthesizes a narration voiceover draft with word budget constraints.
+        Synthesizes a narration voiceover draft with word budget constraints and dynamic model tier routing.
         """
+        from app.services.model_tier_service import ModelTierService
+        spec = ModelTierService.get_tier_spec(model_tier)
+
         max_words = int(target_seconds * 2.6)
         min_words = int(target_seconds * 1.8)
         
@@ -27,11 +38,15 @@ class ScreenwriterAgent(LlmAgent):
         words = script.split()
         return {
             "agent": "ScreenwriterAgent",
+            "model": spec.screenwriter_model,
+            "model_tier": spec.id,
             "scene_number": scene_number,
             "narration": script,
             "word_count": len(words),
             "target_duration_seconds": target_seconds,
             "pacing_status": "optimal" if min_words <= len(words) <= max_words else "adjusted",
+            "estimated_cost_usd": spec.estimated_cost_per_draft,
+            "estimated_latency_ms": spec.estimated_latency_ms,
         }
 
 

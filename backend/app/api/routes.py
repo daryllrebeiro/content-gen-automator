@@ -36,8 +36,9 @@ from app.schemas.projects import (
     ExportManifestResponse,
     ProductionJobResponse,
     YouTubeUploadJobResponse,
+    PlatformExportResponse,
 )
-from app.domain.project import ProjectInput
+from app.domain.project import ProjectInput, Platform
 from app.domain.integration import (
     ClipReviewEvent,
     FinalReviewEvent,
@@ -150,9 +151,9 @@ def run_publishing_pipeline_async(project_id_str: str, upload_job_id: str):
 
     try:
         final_video_url = f"/static/output/{project_id_str}_final.mp4"
+        from app.services.ffmpeg_service import FFmpegAssemblyService
+        stitcher = FFmpegAssemblyService()
         if project.input.stitch_provider == "ffmpeg":
-            from app.services.ffmpeg_service import FFmpegAssemblyService
-            stitcher = FFmpegAssemblyService()
             stitcher.assemble_shorts(project)
         else:
             import os
@@ -160,11 +161,31 @@ def run_publishing_pipeline_async(project_id_str: str, upload_job_id: str):
             with open(f"app/static/output/{project_id_str}_final.mp4", "wb") as f:
                 f.write(b"MOCK FINAL STITCHED VIDEO")
 
+        # 1. Multi-platform media export fan-out
+        target_platforms = getattr(project.input, "target_platforms", [Platform.YOUTUBE_SHORTS])
+        dry_run = (project.input.stitch_provider != "ffmpeg")
+        stitcher.export_platform_targets(
+            project,
+            platforms=target_platforms,
+            input_video_path=f"app/static/output/{project_id_str}_final.mp4",
+            dry_run=dry_run
+        )
+
+        # 2. Modular publishing per target platform
+        from app.services.publish_adapters import get_publish_adapter
         youtube_url = "https://youtu.be/dQw4w9WgXcQ"
-        if project.input.publish_provider == "youtube":
-            from app.services.youtube_publish_service import YouTubePublishService
-            publisher = YouTubePublishService()
-            youtube_url = publisher.publish_shorts(project, f"app/static/output/{project_id_str}_final.mp4")
+        for plat in target_platforms:
+            plat_key = plat.value if hasattr(plat, "value") else str(plat)
+            adapter = get_publish_adapter(plat)
+            export_rec = project.platform_exports.get(plat_key)
+            asset_ref = export_rec.output_asset_ref if export_rec else f"app/static/output/{project_id_str}_final.mp4"
+            pub_res = adapter.publish(project, asset_ref)
+            if export_rec:
+                export_rec.publish_status = pub_res.status
+                export_rec.publish_asset_ref = pub_res.published_url or pub_res.package_dir
+                export_rec.publish_metadata = pub_res.manifest or {"message": pub_res.message}
+            if plat_key == Platform.YOUTUBE_SHORTS.value and pub_res.published_url:
+                youtube_url = pub_res.published_url
 
         upload_job.youtube_video_id = youtube_url.split("/")[-1]
         upload_job.youtube_url = youtube_url
@@ -253,12 +274,34 @@ def _project_response(project) -> ProjectResponse:
         video_provider=project.input.video_provider,
         stitch_provider=project.input.stitch_provider,
         publish_provider=project.input.publish_provider,
+        target_platforms=[
+            p.value if hasattr(p, "value") else str(p)
+            for p in getattr(project.input, "target_platforms", [Platform.YOUTUBE_SHORTS])
+        ],
+        model_tier=getattr(project.input, "model_tier", "flagship"),
+        platform_exports={
+            k: PlatformExportResponse(
+                platform=v.platform.value if hasattr(v.platform, "value") else str(v.platform),
+                aspect_ratio=v.aspect_ratio,
+                output_asset_ref=v.output_asset_ref,
+                export_status=v.export_status,
+                publish_status=v.publish_status,
+                publish_asset_ref=v.publish_asset_ref,
+                publish_metadata=v.publish_metadata or {},
+            )
+            for k, v in getattr(project, "platform_exports", {}).items()
+        },
     )
 
 
 
 @router.post("/api/projects", response_model=ProjectResponse, tags=["projects"])
 def create_project(request: ProjectCreateRequest) -> ProjectResponse:
+    target_platforms = [
+        Platform(p) if isinstance(p, str) else p
+        for p in request.target_platforms
+    ] if request.target_platforms else [Platform.YOUTUBE_SHORTS]
+
     project = project_service.create(
         ProjectInput(
             topic=request.topic,
@@ -275,6 +318,8 @@ def create_project(request: ProjectCreateRequest) -> ProjectResponse:
             stitch_provider=request.stitch_provider,
             publish_provider=request.publish_provider,
             token_budget=request.token_budget,
+            target_platforms=target_platforms,
+            model_tier=request.model_tier,
         )
     )
     # Partner Integrations: Grafana Observability + ClickHouse Analytics
@@ -309,7 +354,8 @@ def generate_first_prompt(project_id: UUID) -> PromptResponse:
             scene_number=current_scene_idx,
             total_scenes=len(project.scenes),
             tone=project.input.tone or "cinematic",
-            facts=project.input.facts or []
+            facts=project.input.facts or [],
+            model_tier=getattr(project.input, "model_tier", "flagship"),
         )
 
         # 2. Advance Domain FSM & Generate Prompt
@@ -373,7 +419,8 @@ def regenerate_prompt(project_id: UUID, scene_number: int) -> PromptResponse:
             topic=project.input.topic,
             scene_number=scene_number,
             total_scenes=len(project.scenes),
-            tone="regenerated"
+            tone="regenerated",
+            model_tier=getattr(project.input, "model_tier", "flagship"),
         )
 
         prompt = project_service.regenerate(project_id, scene_number)
@@ -1524,5 +1571,58 @@ def public_mock_complete_youtube_upload(project_id: UUID, job_id: str, success: 
         "error_class": "" if success else "YouTubeQuotaExceeded",
     }
     return integration_upload_job_callback(job_id, payload, request_id=None)
+
+
+# ---------------------------------------------------------------------------
+# Modular Platform & Model Selection Routes (Features 1 - 5)
+# ---------------------------------------------------------------------------
+
+@router.get("/api/catalog/video-providers", tags=["catalog"])
+def get_video_provider_catalog():
+    from app.services.video_provider_catalog import VideoProviderCatalog
+    return [p.__dict__ for p in VideoProviderCatalog.list_providers()]
+
+
+@router.get("/api/catalog/model-tiers", tags=["catalog"])
+def get_model_tier_catalog():
+    from app.services.model_tier_service import ModelTierService
+    return ModelTierService.list_tiers()
+
+
+@router.get("/api/presets", tags=["presets"])
+def list_studio_presets():
+    from app.services.studio_preset_service import studio_preset_service
+    return studio_preset_service.list_presets()
+
+
+@router.post("/api/presets", tags=["presets"])
+def create_studio_preset(data: Dict[str, Any]):
+    from app.services.studio_preset_service import studio_preset_service
+    if not data.get("name"):
+        raise HTTPException(status_code=400, detail="Preset name is required")
+    created = studio_preset_service.create_custom_preset(data)
+    return created.__dict__
+
+
+@router.get("/api/projects/{project_id}/platform-exports", tags=["publishing"])
+def get_project_platform_exports(project_id: UUID):
+    try:
+        project = project_service.repository.get(project_id)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+
+    return {
+        k: {
+            "platform": v.platform.value if hasattr(v.platform, "value") else str(v.platform),
+            "aspect_ratio": v.aspect_ratio,
+            "output_asset_ref": v.output_asset_ref,
+            "export_status": v.export_status,
+            "publish_status": v.publish_status,
+            "publish_asset_ref": v.publish_asset_ref,
+            "publish_metadata": v.publish_metadata or {},
+        }
+        for k, v in getattr(project, "platform_exports", {}).items()
+    }
+
 
 

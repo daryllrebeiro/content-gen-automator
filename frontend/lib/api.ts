@@ -1,5 +1,53 @@
 export type Duration = 10 | 20 | 30;
 
+export type Platform = "YOUTUBE_SHORTS" | "TIKTOK" | "INSTAGRAM_REELS";
+
+export type PlatformExport = {
+  platform: Platform;
+  aspect_ratio: string;
+  output_asset_ref: string;
+  export_status: string;
+  publish_status: string;
+  publish_asset_ref?: string | null;
+  publish_metadata?: Record<string, any>;
+};
+
+export type VideoProviderCatalogItem = {
+  id: string;
+  name: string;
+  cost_per_scene: string;
+  estimated_latency: string;
+  strengths: string;
+  is_available: boolean;
+  disabled_reason?: string | null;
+};
+
+export type ModelTierItem = {
+  id: string;
+  display_name: string;
+  screenwriter_model: string;
+  cinematographer_model: string;
+  governance_model: string;
+  estimated_cost_per_draft: string;
+  estimated_latency_ms: string;
+  description: string;
+};
+
+export type StudioPreset = {
+  id: string;
+  name: string;
+  description: string;
+  target_platforms: Platform[];
+  video_provider: string;
+  model_tier: string;
+  policy_pack_id: string;
+  suggested_topic?: string;
+  suggested_duration?: Duration;
+  suggested_tone?: string;
+  suggested_style?: string;
+  is_system_preset?: boolean;
+};
+
 export type ProjectInput = {
   topic: string;
   facts: string[];
@@ -13,6 +61,8 @@ export type ProjectInput = {
   video_provider: string;
   stitch_provider: string;
   publish_provider: string;
+  target_platforms?: Platform[];
+  model_tier?: string;
 };
 
 
@@ -56,6 +106,9 @@ export type Project = {
   video_provider: string;
   stitch_provider: string;
   publish_provider: string;
+  target_platforms?: string[];
+  model_tier?: string;
+  platform_exports?: Record<string, PlatformExport>;
 };
 
 
@@ -261,4 +314,27 @@ export function getYoutubeUploadJobs(projectId: string) {
 
 export function mockCompleteYoutubeUpload(projectId: string, jobId: string, success = true) {
   return request<YouTubeUploadJob>(`/api/projects/${projectId}/youtube-upload-jobs/${jobId}/mock-complete?success=${success}`, { method: "POST" });
+}
+
+export function fetchVideoProviders() {
+  return request<VideoProviderCatalogItem[]>("/api/catalog/video-providers");
+}
+
+export function fetchModelTiers() {
+  return request<ModelTierItem[]>("/api/catalog/model-tiers");
+}
+
+export function fetchStudioPresets() {
+  return request<StudioPreset[]>("/api/presets");
+}
+
+export function createStudioPreset(preset: Partial<StudioPreset>) {
+  return request<StudioPreset>("/api/presets", {
+    method: "POST",
+    body: JSON.stringify(preset),
+  });
+}
+
+export function fetchPlatformExports(projectId: string) {
+  return request<Record<string, PlatformExport>>(`/api/projects/${projectId}/platform-exports`);
 }

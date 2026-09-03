@@ -29,6 +29,15 @@ import {
   FinalReviewStatusResponse,
   YouTubeUploadJob,
   GateReportResponse,
+  Platform,
+  PlatformExport,
+  VideoProviderCatalogItem,
+  ModelTierItem,
+  StudioPreset,
+  fetchVideoProviders,
+  fetchModelTiers,
+  fetchStudioPresets,
+  fetchPlatformExports,
 } from "../lib/api";
 import StatusTracker from "../components/StatusTracker";
 import PartnerEcosystemBar from "../components/PartnerEcosystemBar";
@@ -123,6 +132,21 @@ export default function HomePage() {
   const [stitchProvider, setStitchProvider] = useState("mock");
   const [publishProvider, setPublishProvider] = useState("mock");
 
+  // Modular multi-platform and model tier options (Features 1 - 5)
+  const [targetPlatforms, setTargetPlatforms] = useState<Platform[]>(["YOUTUBE_SHORTS"]);
+  const [modelTier, setModelTier] = useState("flagship");
+  const [videoCatalog, setVideoCatalog] = useState<VideoProviderCatalogItem[]>([]);
+  const [modelTiersCatalog, setModelTiersCatalog] = useState<ModelTierItem[]>([]);
+  const [studioPresets, setStudioPresets] = useState<StudioPreset[]>([]);
+  const [activePresetId, setActivePresetId] = useState<string | null>(null);
+  const [platformExports, setPlatformExports] = useState<Record<string, PlatformExport>>({});
+
+  useEffect(() => {
+    fetchVideoProviders().then(setVideoCatalog).catch(() => {});
+    fetchModelTiers().then(setModelTiersCatalog).catch(() => {});
+    fetchStudioPresets().then(setStudioPresets).catch(() => {});
+  }, []);
+
 
   // App state
   const [project, setProject] = useState<Project | null>(null);
@@ -193,25 +217,14 @@ export default function HomePage() {
         setFinalReview(review);
         setUploadJobs(uploads);
 
+        fetchPlatformExports(projectId).then(setPlatformExports).catch(() => {});
         // Auto transition active tab/stage based on project status (unless user manually clicks, but we sync by default)
-        if (
-          freshProject.status === "PUBLISHING_PENDING" ||
-          freshProject.status === "PUBLISHED" ||
-          freshProject.status === "PUBLISH_FAILED"
-        ) {
-          setActiveStage(STAGES.PUBLISHING);
-        } else if (freshProject.status === "VIDEO_APPROVED" || freshProject.status === "VIDEO_REJECTED") {
-          setActiveStage(STAGES.PUBLISHING);
-        } else if (
-          freshProject.status === "COMPLETED" &&
-          jobs.length > 0 &&
-          jobs.every((j) => j.status === "SUCCEEDED") &&
-          clipList.length > 0 &&
-          clipList.every((c) => c.review_status === "approved")
-        ) {
-          setActiveStage(STAGES.REVIEW);
-        } else {
+        if (freshProject.status === "COMPLETED") {
           setActiveStage(STAGES.PRODUCTION);
+        } else if (freshProject.status === "VIDEO_APPROVED") {
+          setActiveStage(STAGES.PUBLISHING);
+        } else if (freshProject.status === "PUBLISHING_PENDING" || freshProject.status === "PUBLISHED") {
+          setActiveStage(STAGES.PUBLISHING);
         }
       } else {
         setActiveStage(STAGES.PROMPTS);
@@ -220,6 +233,30 @@ export default function HomePage() {
       handleError(err);
     }
   }
+
+  const togglePlatform = (plat: Platform) => {
+    if (targetPlatforms.includes(plat)) {
+      if (targetPlatforms.length > 1) {
+        setTargetPlatforms(targetPlatforms.filter((p) => p !== plat));
+      }
+    } else {
+      setTargetPlatforms([...targetPlatforms, plat]);
+    }
+  };
+
+  const applyPreset = (preset: StudioPreset) => {
+    setActivePresetId(preset.id);
+    if (preset.suggested_topic) setTopic(preset.suggested_topic);
+    if (preset.suggested_tone) setTone(preset.suggested_tone);
+    if (preset.suggested_style) setStyle(preset.suggested_style);
+    if (preset.suggested_duration) setDuration(preset.suggested_duration);
+    if (preset.policy_pack_id) setPolicyPack(preset.policy_pack_id);
+    if (preset.target_platforms && preset.target_platforms.length > 0) {
+      setTargetPlatforms(preset.target_platforms);
+    }
+    if (preset.video_provider) setVideoProvider(preset.video_provider);
+    if (preset.model_tier) setModelTier(preset.model_tier);
+  };
 
   // Periodic poll in development to catch async states
   useEffect(() => {
@@ -260,6 +297,8 @@ export default function HomePage() {
         video_provider: videoProvider,
         stitch_provider: stitchProvider,
         publish_provider: publishProvider,
+        target_platforms: targetPlatforms,
+        model_tier: modelTier,
       });
 
       const firstPrompt = await generatePrompt(created.id);
@@ -597,7 +636,7 @@ export default function HomePage() {
           </p>
         </section>
         <form className="form-card" onSubmit={startProject}>
-          {/* Preset Quick-Launch Bar for Judges (Tier 2.1) */}
+          {/* Preset Quick-Launch Bar for Judges (Tier 2.1 / Feature 5) */}
           <div style={{
             marginBottom: "18px",
             padding: "14px 16px",
@@ -605,56 +644,78 @@ export default function HomePage() {
             border: "1px solid rgba(255, 255, 255, 0.08)",
             borderRadius: "10px"
           }}>
-            <p style={{ fontSize: "11px", fontWeight: 700, letterSpacing: "0.08em", color: "var(--muted)", textTransform: "uppercase", marginBottom: "10px" }}>
-              ⚡ 1-Click Judge Quick-Launch Presets (Live Demo)
-            </p>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+              <p style={{ fontSize: "11px", fontWeight: 700, letterSpacing: "0.08em", color: "var(--muted)", textTransform: "uppercase", margin: 0 }}>
+                ⚡ 1-Click Studio Presets (Bundles Platforms + Models + Policies)
+              </p>
+              {activePresetId && (
+                <span style={{ fontSize: "10px", color: "var(--accent)", background: "rgba(199, 243, 107, 0.1)", padding: "2px 8px", borderRadius: "4px", border: "1px solid rgba(199, 243, 107, 0.3)" }}>
+                  Active: {activePresetId}
+                </span>
+              )}
+            </div>
             <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-              <button
-                type="button"
-                onClick={() => {
-                  setTopic("The Hidden World of Bioluminescent Deep Sea Creatures");
-                  setFactsInput("Deep sea organisms generate living light through luciferin oxidation.\nBioluminescence serves for camouflage, mating, and hunting in the deep pelagic zone.\nOver 75% of deep sea creatures produce their own illumination.");
-                  setTone("curious cinematic documentary");
-                  setStyle("hyper-detailed 4K bioluminescent underwater 3D animation");
-                  setDuration(30);
-                  setPolicyPack("general_audience");
-                }}
-                style={{
-                  fontSize: "12px",
-                  padding: "6px 12px",
-                  background: "rgba(56, 189, 248, 0.12)",
-                  border: "1px solid rgba(56, 189, 248, 0.35)",
-                  color: "#38bdf8",
-                  borderRadius: "6px",
-                  cursor: "pointer",
-                  fontWeight: 600
-                }}
-              >
-                🐬 Entertainment: Deep Sea Light
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setTopic("Quantum Computing Breakthroughs in 2026");
-                  setFactsInput("Superconducting qubits achieve quantum supremacy error correction.\nFault-tolerant logical qubits perform calculations in seconds that take classical computers millennia.\nPost-quantum cryptography standards are now required for global financial infrastructure.");
-                  setTone("authoritative tech documentary");
-                  setStyle("sleek corporate cyberpunk 3D motion graphics with glowing circuitry");
-                  setDuration(30);
-                  setPolicyPack("general_audience");
-                }}
-                style={{
-                  fontSize: "12px",
-                  padding: "6px 12px",
-                  background: "rgba(168, 85, 247, 0.12)",
-                  border: "1px solid rgba(168, 85, 247, 0.35)",
-                  color: "#c084fc",
-                  borderRadius: "6px",
-                  cursor: "pointer",
-                  fontWeight: 600
-                }}
-              >
-                🔬 Enterprise: Quantum Frontiers
-              </button>
+              {(studioPresets.length > 0 ? studioPresets : [
+                {
+                  id: "fast_youtube_draft",
+                  name: "⚡ Fast YouTube Draft",
+                  description: "Cost-optimized Gemma draft tier + simulated video for rapid storyboarding.",
+                  target_platforms: ["YOUTUBE_SHORTS" as Platform],
+                  video_provider: "mock",
+                  model_tier: "fast_draft",
+                  policy_pack_id: "general_audience",
+                  suggested_topic: "The Hidden World of Bioluminescent Deep Sea Creatures",
+                  suggested_duration: 30 as Duration,
+                  suggested_tone: "curious cinematic documentary",
+                  suggested_style: "hyper-detailed 4K bioluminescent underwater 3D animation"
+                },
+                {
+                  id: "multi_platform_viral",
+                  name: "🚀 Multi-Platform Viral Launch",
+                  description: "Simultaneous fan-out across YouTube Shorts, TikTok, and Instagram Reels with Flagship reasoning.",
+                  target_platforms: ["YOUTUBE_SHORTS" as Platform, "TIKTOK" as Platform, "INSTAGRAM_REELS" as Platform],
+                  video_provider: "runway",
+                  model_tier: "flagship",
+                  policy_pack_id: "general_audience",
+                  suggested_topic: "Quantum Computing Breakthroughs in 2026",
+                  suggested_duration: 30 as Duration,
+                  suggested_tone: "authoritative tech documentary",
+                  suggested_style: "sleek corporate cyberpunk 3D motion graphics with glowing circuitry"
+                },
+                {
+                  id: "enterprise_compliance_launch",
+                  name: "🛡️ Enterprise Safe Launch",
+                  description: "Strict Kids & Family brand safety rules with Gemini Omni Flash prompt adherence.",
+                  target_platforms: ["YOUTUBE_SHORTS" as Platform, "INSTAGRAM_REELS" as Platform],
+                  video_provider: "gemini_omni",
+                  model_tier: "flagship",
+                  policy_pack_id: "kids_family",
+                  suggested_topic: "The Ancient Secrets of Rainforest Canopies",
+                  suggested_duration: 30 as Duration,
+                  suggested_tone: "educational and inspiring",
+                  suggested_style: "warm atmospheric nature documentary"
+                }
+              ]).map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  onClick={() => applyPreset(preset)}
+                  style={{
+                    fontSize: "12px",
+                    padding: "6px 12px",
+                    background: activePresetId === preset.id ? "rgba(199, 243, 107, 0.2)" : "rgba(56, 189, 248, 0.12)",
+                    border: `1px solid ${activePresetId === preset.id ? "var(--accent)" : "rgba(56, 189, 248, 0.35)"}`,
+                    color: activePresetId === preset.id ? "var(--accent)" : "#38bdf8",
+                    borderRadius: "6px",
+                    cursor: "pointer",
+                    fontWeight: 600,
+                    transition: "all 0.15s ease"
+                  }}
+                  title={preset.description}
+                >
+                  {preset.name}
+                </button>
+              ))}
               <button
                 type="button"
                 onClick={() => {
@@ -664,6 +725,7 @@ export default function HomePage() {
                   setStyle("dark violent gritty");
                   setDuration(10);
                   setPolicyPack("kids_family");
+                  setActivePresetId(null);
                 }}
                 style={{
                   fontSize: "12px",
@@ -745,7 +807,77 @@ export default function HomePage() {
             </div>
           </fieldset>
 
+          {/* Target Platforms Selection (Feature 1) */}
+          <div style={{ margin: "18px 0" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+              <span style={{ fontSize: "13px", fontWeight: 700 }}>🎯 Target Distribution Platforms (Multi-Select)</span>
+              <span className="hint" style={{ fontSize: "11px" }}>Fan-out export at render stage</span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "10px" }}>
+              {[
+                { id: "YOUTUBE_SHORTS" as Platform, name: "YouTube Shorts", ratio: "9:16 Vertical", spec: "Max 60s · Documentary pacing" },
+                { id: "TIKTOK" as Platform, name: "TikTok", ratio: "9:16 Vertical", spec: "High-energy hook · FYP hashtags" },
+                { id: "INSTAGRAM_REELS" as Platform, name: "Instagram Reels", ratio: "9:16 Vertical", spec: "Aesthetic visuals · Minimal captions" },
+              ].map((plat) => {
+                const isSelected = targetPlatforms.includes(plat.id);
+                return (
+                  <div
+                    key={plat.id}
+                    onClick={() => togglePlatform(plat.id)}
+                    style={{
+                      padding: "12px 14px",
+                      borderRadius: "8px",
+                      cursor: "pointer",
+                      border: `1px solid ${isSelected ? "var(--accent)" : "var(--line)"}`,
+                      background: isSelected ? "rgba(199, 243, 107, 0.08)" : "rgba(255, 255, 255, 0.02)",
+                      transition: "all 0.15s ease"
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                      <span style={{ fontWeight: 700, fontSize: "13px", color: isSelected ? "var(--accent)" : "var(--ink)" }}>{plat.name}</span>
+                      <span style={{ fontSize: "10px", padding: "2px 6px", borderRadius: "4px", background: "rgba(255, 255, 255, 0.05)", color: "var(--muted)" }}>{plat.ratio}</span>
+                    </div>
+                    <p style={{ fontSize: "11px", color: "var(--muted)", margin: 0 }}>{plat.spec}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           <div className="two-col" style={{ marginTop: "14px" }}>
+            <label>
+              Video Generator (Modular Catalog)
+              <select
+                value={videoProvider}
+                onChange={(e) => setVideoProvider(e.target.value)}
+                style={{ width: "100%", padding: "10px", borderRadius: "8px", background: "#0c0c13", border: "1px solid var(--line)", color: "var(--ink)" }}
+              >
+                {(videoCatalog.length > 0 ? videoCatalog : [
+                  { id: "mock", name: "Simulated Studio (Mock)", cost_per_scene: "$0.00 / scene", is_available: true },
+                  { id: "gemini_omni", name: "Google Gemini Omni Flash", cost_per_scene: "$0.04 / scene", is_available: false, disabled_reason: "Requires GEMINI_API_KEY" },
+                  { id: "runway", name: "Runway Gen-3 Alpha", cost_per_scene: "$0.25 / scene", is_available: false, disabled_reason: "Requires RUNWAY_API_KEY" },
+                  { id: "kling", name: "Kling AI Video", cost_per_scene: "$0.10 / scene", is_available: false, disabled_reason: "Requires KLING_API_KEY" },
+                ]).map((vp) => (
+                  <option key={vp.id} value={vp.id} disabled={!vp.is_available}>
+                    {vp.name} {vp.is_available ? `(${vp.cost_per_scene})` : `(Disabled: ${vp.disabled_reason || "Unavailable"})`}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Model Garden Tier (LLM Reasoning)
+              <select
+                value={modelTier}
+                onChange={(e) => setModelTier(e.target.value)}
+                style={{ width: "100%", padding: "10px", borderRadius: "8px", background: "#0c0c13", border: "1px solid var(--line)", color: "var(--ink)" }}
+              >
+                <option value="fast_draft">⚡ Fast Draft (Gemma Tier) — ~$0.0002/scene, ~950ms</option>
+                <option value="flagship">👑 Flagship (Gemini 2.5 Flash) — ~$0.0010/scene, ~2400ms</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="two-col" style={{ margin: "14px 0" }}>
             <label>
               TTS Provider
               <select value={ttsProvider} onChange={(e) => setTtsProvider(e.target.value)} style={{ width: "100%", padding: "10px", borderRadius: "8px", background: "#0c0c13", border: "1px solid var(--line)", color: "var(--ink)" }}>
@@ -754,27 +886,10 @@ export default function HomePage() {
               </select>
             </label>
             <label>
-              Video Generator
-              <select value={videoProvider} onChange={(e) => setVideoProvider(e.target.value)} style={{ width: "100%", padding: "10px", borderRadius: "8px", background: "#0c0c13", border: "1px solid var(--line)", color: "var(--ink)" }}>
-                <option value="mock">Simulated (Mock)</option>
-                <option value="runway">Runway Gen-3</option>
-                <option value="kling">Kling AI</option>
-              </select>
-            </label>
-          </div>
-          <div className="two-col" style={{ margin: "14px 0" }}>
-            <label>
               Media Stitching
               <select value={stitchProvider} onChange={(e) => setStitchProvider(e.target.value)} style={{ width: "100%", padding: "10px", borderRadius: "8px", background: "#0c0c13", border: "1px solid var(--line)", color: "var(--ink)" }}>
                 <option value="mock">Simulated (Mock)</option>
                 <option value="ffmpeg">FFmpeg Stitching</option>
-              </select>
-            </label>
-            <label>
-              Distribution / Publish
-              <select value={publishProvider} onChange={(e) => setPublishProvider(e.target.value)} style={{ width: "100%", padding: "10px", borderRadius: "8px", background: "#0c0c13", border: "1px solid var(--line)", color: "var(--ink)" }}>
-                <option value="mock">Simulated (Mock)</option>
-                <option value="youtube">YouTube OAuth2 Upload</option>
               </select>
             </label>
           </div>
@@ -1489,6 +1604,56 @@ export default function HomePage() {
               </div>
             )}
 
+            {/* Multi-Platform Exports & Manual Packaging (Features 1 & 4) */}
+            {Object.keys(platformExports).length > 0 && (
+              <div style={{ marginTop: "24px", borderTop: "1px solid var(--line)", paddingTop: "20px" }}>
+                <p className="eyebrow">MULTI-PLATFORM EXPORTS & PACKAGING</p>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "12px" }}>
+                  {Object.entries(platformExports).map(([platKey, exp]) => (
+                    <div
+                      key={platKey}
+                      style={{
+                        background: "rgba(255, 255, 255, 0.02)",
+                        border: "1px solid var(--line)",
+                        borderRadius: "8px",
+                        padding: "16px"
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                        <span style={{ fontWeight: 700, fontSize: "14px" }}>
+                          {platKey === "YOUTUBE_SHORTS" ? "🔴 YouTube Shorts" : platKey === "TIKTOK" ? "🎵 TikTok" : "📸 Instagram Reels"}
+                        </span>
+                        <span className={`badge ${exp.publish_status === "PUBLISHED" ? "badge-success" : exp.publish_status === "READY_FOR_MANUAL_UPLOAD" ? "badge-warning" : "badge-secondary"}`}>
+                          {exp.publish_status}
+                        </span>
+                      </div>
+                      <p style={{ fontSize: "12px", color: "var(--muted)", margin: "0 0 8px" }}>
+                        Aspect Ratio: <strong>{exp.aspect_ratio}</strong> · Render: <strong style={{ color: "#10b981" }}>{exp.export_status}</strong>
+                      </p>
+                      {exp.publish_asset_ref && (
+                        <div style={{ background: "#0c0c13", padding: "8px 10px", borderRadius: "6px", fontSize: "11px", wordBreak: "break-all", marginBottom: "8px" }}>
+                          <span style={{ color: "var(--muted)" }}>Target Asset: </span>
+                          <span style={{ color: "var(--accent)" }}>{exp.publish_asset_ref}</span>
+                        </div>
+                      )}
+                      {exp.publish_status === "READY_FOR_MANUAL_UPLOAD" && exp.publish_metadata && (
+                        <div style={{ fontSize: "11px", color: "var(--muted)" }}>
+                          <p style={{ margin: "4px 0" }}>
+                            📦 Manifest packaged with formatted video, WebVTT captions, and copy-paste hashtags.
+                          </p>
+                          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "6px" }}>
+                            {exp.publish_metadata.hashtags?.map((tag: string) => (
+                              <span key={tag} style={{ color: "#38bdf8", background: "rgba(56, 189, 248, 0.1)", padding: "2px 6px", borderRadius: "4px" }}>{tag}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Publishing trigger button */}
             {!isPublishingPending && project.status !== "PUBLISHED" && (
               <div style={{ marginTop: "24px", borderTop: "1px solid var(--line)", paddingTop: "20px", display: "flex", justifyContent: "flex-end" }}>
@@ -1497,7 +1662,7 @@ export default function HomePage() {
                   disabled={busy || !gateReport?.can_publish}
                   onClick={handlePublish}
                 >
-                  Publish to YouTube Shorts
+                  Publish to Selected Platforms ({targetPlatforms.length})
                 </button>
               </div>
             )}

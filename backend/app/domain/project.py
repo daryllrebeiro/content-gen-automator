@@ -33,6 +33,23 @@ def scene_count(duration_seconds: DurationSeconds) -> int:
     return scene_count_for_duration(duration_seconds)
 
 
+class Platform(str, Enum):
+    YOUTUBE_SHORTS = "YOUTUBE_SHORTS"
+    TIKTOK = "TIKTOK"
+    INSTAGRAM_REELS = "INSTAGRAM_REELS"
+
+
+@dataclass
+class PlatformExport:
+    platform: Platform
+    aspect_ratio: str
+    output_asset_ref: str
+    export_status: str = "COMPLETED"
+    publish_status: str = "NOT_STARTED"
+    publish_asset_ref: str | None = None
+    publish_metadata: dict[str, object] = field(default_factory=dict)
+
+
 @dataclass
 class ProjectInput:
     topic: str
@@ -49,6 +66,8 @@ class ProjectInput:
     stitch_provider: str = "mock"
     publish_provider: str = "mock"
     token_budget: int = 50000
+    target_platforms: list[Platform] = field(default_factory=lambda: [Platform.YOUTUBE_SHORTS])
+    model_tier: str = "flagship"
 
 
 
@@ -114,3 +133,4 @@ class Project:
     facts: list[FactClaim] = field(default_factory=list)
     prompts: dict[int, VideoPrompt] = field(default_factory=dict)
     prompt_history: dict[int, list[VideoPrompt]] = field(default_factory=dict)
+    platform_exports: dict[str, PlatformExport] = field(default_factory=dict)

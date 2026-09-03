@@ -1,7 +1,4 @@
 import os
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
-from google.oauth2.credentials import Credentials
 
 class YouTubePublishService:
     def __init__(self) -> None:
@@ -21,6 +18,13 @@ class YouTubePublishService:
                 "YOUTUBE_REFRESH_TOKEN) are not configured. "
                 "Set publish_provider to 'mock' or configure OAuth credentials."
             )
+
+        try:
+            from googleapiclient.discovery import build
+            from googleapiclient.http import MediaFileUpload
+            from google.oauth2.credentials import Credentials
+        except ImportError:
+            raise RuntimeError("google-api-python-client and google-auth are required for live YouTube uploads.")
 
         # Build credentials object
         creds = Credentials(

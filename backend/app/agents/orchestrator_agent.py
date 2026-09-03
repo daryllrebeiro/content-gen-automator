@@ -32,15 +32,16 @@ class OrchestratorAgent(LlmAgent):
         tone: str = "curious documentary",
         visual_style: str = "stylized cinematic 3D animation",
         facts: Optional[List[str]] = None,
-        studio_id: str = "studio_default"
+        studio_id: str = "studio_default",
+        model_tier: str = "flagship"
     ) -> Dict[str, Any]:
         """
         Coordinates full A2A multi-agent sequence for a scene:
         1. ResearchAgent -> Grounding & Facts
         2. ContinuityAgent -> Memory Bank Seed & Brand Voice
-        3. ScreenwriterAgent -> Word-Budgeted Narration
-        4. CinematographerAgent -> Visual Prompt & Camera Moves
-        5. GovernanceAgent -> IBM watsonx Safety Certification
+        3. ScreenwriterAgent -> Word-Budgeted Narration (Model Tier Routing)
+        4. CinematographerAgent -> Visual Prompt & Camera Moves (Flagship)
+        5. GovernanceAgent -> IBM watsonx Safety Certification (Flagship)
         """
         # 1. Research grounding if facts not provided
         grounded_facts = facts or []
@@ -57,7 +58,8 @@ class OrchestratorAgent(LlmAgent):
             scene_number=scene_number,
             total_scenes=total_scenes,
             facts=grounded_facts,
-            target_seconds=10
+            target_seconds=10,
+            model_tier=model_tier
         )
 
         # 4. Cinematography
@@ -87,6 +89,7 @@ class OrchestratorAgent(LlmAgent):
             "seed": continuity["seed"],
             "governance_decision": gov_res["decision"],
             "risk_score": gov_res["risk_score"],
+            "script_metadata": script_res,
             "a2a_trace": {
                 "research": research_agent.role,
                 "screenwriter": screenwriter_agent.role,

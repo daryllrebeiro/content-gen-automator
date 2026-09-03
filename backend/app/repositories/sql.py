@@ -7,6 +7,8 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 from app.domain.project import (
     ContinuityProfile,
+    Platform,
+    PlatformExport,
     Project,
     ProjectInput,
     ProjectStatus,
@@ -219,6 +221,18 @@ class SqlProjectRepository:
             record.duration_seconds = project.input.duration_seconds
             record.status = project.status.value
             record.current_scene_number = project.current_scene_number
+            exports_data = {}
+            for k, v in getattr(project, "platform_exports", {}).items():
+                exports_data[k] = {
+                    "platform": v.platform.value if hasattr(v.platform, "value") else str(v.platform),
+                    "aspect_ratio": v.aspect_ratio,
+                    "output_asset_ref": v.output_asset_ref,
+                    "export_status": v.export_status,
+                    "publish_status": v.publish_status,
+                    "publish_asset_ref": v.publish_asset_ref,
+                    "publish_metadata": v.publish_metadata or {},
+                }
+
             record.input_data = {
                 "facts": project.input.facts,
                 "source_urls": project.input.source_urls,
@@ -231,6 +245,13 @@ class SqlProjectRepository:
                 "video_provider": project.input.video_provider,
                 "stitch_provider": project.input.stitch_provider,
                 "publish_provider": project.input.publish_provider,
+                "token_budget": getattr(project.input, "token_budget", 50000),
+                "target_platforms": [
+                    p.value if hasattr(p, "value") else str(p)
+                    for p in getattr(project.input, "target_platforms", [Platform.YOUTUBE_SHORTS])
+                ],
+                "model_tier": getattr(project.input, "model_tier", "flagship"),
+                "platform_exports": exports_data,
             }
 
             record.story_data = {
@@ -486,13 +507,29 @@ class SqlProjectRepository:
 
     @staticmethod
     def _to_domain(record: ProjectRecord) -> Project:
-        input_data = record.input_data or {}
+        input_data = dict(record.input_data or {})
+        platform_exports_raw = input_data.pop("platform_exports", {})
+        if "target_platforms" in input_data:
+            input_data["target_platforms"] = [
+                Platform(p) if isinstance(p, str) else p
+                for p in input_data["target_platforms"]
+            ]
         project = Project(
             id=UUID(record.id),
             status=ProjectStatus(record.status),
             current_scene_number=record.current_scene_number,
             input=ProjectInput(topic=record.topic, duration_seconds=record.duration_seconds, **input_data),
         )
+        for k, v in (platform_exports_raw or {}).items():
+            project.platform_exports[k] = PlatformExport(
+                platform=Platform(v["platform"]) if isinstance(v["platform"], str) else v["platform"],
+                aspect_ratio=v.get("aspect_ratio", "9:16"),
+                output_asset_ref=v.get("output_asset_ref", ""),
+                export_status=v.get("export_status", "COMPLETED"),
+                publish_status=v.get("publish_status", "NOT_STARTED"),
+                publish_asset_ref=v.get("publish_asset_ref"),
+                publish_metadata=v.get("publish_metadata", {}),
+            )
         story = record.story_data or {}
         project.story_hook = story.get("hook", "")
         project.story_central_claim = story.get("central_claim", "")

@@ -22,6 +22,8 @@ class ProjectCreateRequest(BaseModel):
     stitch_provider: str = Field(default="mock")
     publish_provider: str = Field(default="mock")
     token_budget: int = Field(default=50000, description="Max token cost ceiling for Auto-Pilot runs")
+    target_platforms: list[str] = Field(default_factory=lambda: ["YOUTUBE_SHORTS"])
+    model_tier: str = Field(default="flagship")
 
 
 
@@ -63,6 +65,16 @@ class FactResponse(BaseModel):
     approved_for_narration: bool
 
 
+class PlatformExportResponse(BaseModel):
+    platform: str
+    aspect_ratio: str
+    output_asset_ref: str
+    export_status: str
+    publish_status: str
+    publish_asset_ref: str | None = None
+    publish_metadata: dict = Field(default_factory=dict)
+
+
 class ProjectResponse(BaseModel):
     id: UUID
     status: str
@@ -81,6 +93,9 @@ class ProjectResponse(BaseModel):
     video_provider: str
     stitch_provider: str
     publish_provider: str
+    target_platforms: list[str] = Field(default_factory=lambda: ["YOUTUBE_SHORTS"])
+    model_tier: str = "flagship"
+    platform_exports: dict[str, PlatformExportResponse] = Field(default_factory=dict)
 
 
 
