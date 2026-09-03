@@ -51,7 +51,7 @@ def get_partner_ecosystem_status():
         "hackathon": "Agentic Cinema: The Blockbuster Hackathon",
         "primary_track": "IBM watsonx (Governance)",
         "google_cloud_gemini": {
-            "model": "gemini-3.7-flash (Omni Flash)",
+            "model": "gemini-2.5-flash",
             "framework": "Google Cloud Agent Development Kit (ADK)",
             "status": "ready"
         },
@@ -163,7 +163,7 @@ def export_soc2_audit_log(project_id: str):
         "event_records": [
             {"event": "PROJECT_INITIALIZED", "actor": "Director", "timestamp": "2026-09-02T11:50:00Z"},
             {"event": "PARALLEL_GROUNDING_ATTACHED", "source": "Parallel Search API", "timestamp": "2026-09-02T11:50:02Z"},
-            {"event": "GEMINI_ADK_PROMPT_SYNTHESIZED", "model": "gemini-3.7-flash", "timestamp": "2026-09-02T11:50:05Z"},
+            {"event": "GEMINI_ADK_PROMPT_SYNTHESIZED", "model": "gemini-2.5-flash", "timestamp": "2026-09-02T11:50:05Z"},
             {"event": "IBM_WATSONX_GOVERNANCE_CERTIFIED", "verdict": "PASSED", "risk": 0.03, "timestamp": "2026-09-02T11:50:06Z"},
             {"event": "PUBLISHING_GATES_VERIFIED", "passed": "7/7", "timestamp": "2026-09-02T11:50:10Z"}
         ]

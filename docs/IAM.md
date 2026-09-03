@@ -19,7 +19,7 @@ graph TD
 
     subgraph "GCP Resource Access"
         SA_Research -->|Discovery & Grounding| VertexSearch[(Vertex AI Search)]
-        SA_Studio -->|Model Invocations| ModelGarden[(Gemini 3.7 Flash & Vertex Models)]
+        SA_Studio -->|Model Invocations| ModelGarden[(Gemini 2.5 Flash & Vertex Models)]
         SA_Studio -->|Persistent Context| MemoryBank[(Agent Engine Memory Bank)]
         SA_Gov -->|Policy Storage| GCS_Audit[(GCS Signed Compliance Certs)]
         SA_Pub -->|Secret Decryption| SecretMgr[(GCP Secret Manager)]
@@ -35,7 +35,7 @@ graph TD
 | :--- | :--- | :--- | :--- |
 | `sa-studio-core@PROJECT.iam.gserviceaccount.com` | FastAPI Service Host | `roles/run.invoker`<br>`roles/serviceusage.serviceUsageConsumer` | Ingress gateway routing HTTP requests to Agent Engine. |
 | `sa-research-agent@PROJECT.iam.gserviceaccount.com` | `ResearchAgent` | `roles/discoveryengine.viewer`<br>`roles/aiplatform.user` | Queries Vertex AI Search datastores without write or export permissions. |
-| `sa-creative-agents@PROJECT.iam.gserviceaccount.com` | `Screenwriter`, `Cinematographer`, `Continuity` | `roles/aiplatform.user`<br>`roles/agentengine.sessionUser` | Invokes Gemini 3.7 Flash and reads/writes to studio Memory Bank. |
+| `sa-creative-agents@PROJECT.iam.gserviceaccount.com` | `Screenwriter`, `Cinematographer`, `Continuity` | `roles/aiplatform.user`<br>`roles/agentengine.sessionUser` | Invokes Gemini 2.5 Flash and reads/writes to studio Memory Bank. |
 | `sa-governance-agent@PROJECT.iam.gserviceaccount.com` | `GovernanceAgent` | `roles/storage.objectCreator`<br>`roles/aiplatform.user` | Audits prompts and writes immutable Compliance Certificates to GCS. |
 | `sa-publishing-agent@PROJECT.iam.gserviceaccount.com` | `PublishingAgent` | `roles/secretmanager.secretAccessor`<br>`roles/storage.objectAdmin` | **Only SA with access to YouTube OAuth secrets** and final distribution staging. |
 

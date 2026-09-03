@@ -69,7 +69,7 @@ gcloud run deploy "${ServiceName}-backend" `
     --region $Region `
     --allow-unauthenticated `
     --set-secrets "GEMINI_API_KEY=${SecretName}:latest" `
-    --set-env-vars "GEMINI_MODEL=gemini-3.7-flash,PORT=8000" `
+    --set-env-vars "GEMINI_MODEL=gemini-2.5-flash,PORT=8000" `
     --port 8000 `
     --cpu 1 --memory 1Gi `
     --min-instances 0 --max-instances 2 `

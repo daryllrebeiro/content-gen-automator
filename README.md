@@ -3,7 +3,7 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python: 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/)
 [![Next.js: 15+](https://img.shields.io/badge/Next.js-15-black.svg)](https://nextjs.org/)
-[![Gemini: 3.7 Flash](https://img.shields.io/badge/Gemini-3.7%20Flash%20Omni-orange.svg)](https://cloud.google.com/vertex-ai)
+[![Gemini: 2.5 Flash](https://img.shields.io/badge/Gemini-2.5%20Flash-orange.svg)](https://cloud.google.com/vertex-ai)
 [![IBM: watsonx](https://img.shields.io/badge/IBM-watsonx.governance-purple.svg)](https://www.ibm.com/products/watsonx-governance)
 [![Tests: 75 Passing](https://img.shields.io/badge/Tests-75%20Passing-brightgreen.svg)](backend/tests/)
 
@@ -66,7 +66,7 @@ Every provider in the studio implements a resilient failover interface. Judges c
 | **Agent Core & ADK** | Google Cloud ADK (`google-adk 2.8.0`) | In-process Multi-Agent Tree | ✅ Real ADK `LlmAgent` |
 | **Agent Engine Deployment**| Vertex AI Agent Engine (`deploy-agent-engine.sh`) | Simulated Registration / In-Process Runner | ✅ Simulated Engine |
 | **Studio Memory & Grounding**| Vertex Search & Studio Memory Bank | In-process Session Memory Adapter | ✅ In-Process Adaptive |
-| **LLM & Vision** | Google Gemini 3.7 Flash (`google-genai`) | `StructuredFakeProvider` | ✅ Real Gemini |
+| **LLM & Vision** | Google Gemini 2.5 Flash (`google-genai`) | `StructuredFakeProvider` | ✅ Real Gemini |
 | **Governance & Safety** | IBM watsonx.governance API | `MockGovernanceGuard` (Offline CI) | ✅ Real / Adaptive |
 | **Research & Grounding** | Parallel Search API / MCP | In-memory Grounding Engine | ✅ Real / Adaptive |
 | **Observability** | Grafana Cloud / OpenLIT OTLP | Native Prometheus `/metrics` Engine | ✅ Real Grafana OTLP |

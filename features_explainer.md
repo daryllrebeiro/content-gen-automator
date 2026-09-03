@@ -31,7 +31,7 @@ graph TD
     end
 
     subgraph "Production & Generation Engine"
-        API --> Gemini[Google Gemini 3.7 Flash Omni]
+        API --> Gemini[Google Gemini 2.5 Flash]
         API --> ElevenLabs[ElevenLabs Audio TTS]
         API --> VideoGen[Runway / Kling / Omni Flash]
         API --> FFmpeg[FFmpeg Short Stitcher]
@@ -79,7 +79,7 @@ YouTube Shorts and TikTok algorithms heavily penalize content that feels rushed,
 
 ---
 
-### 1.2 Multi-Agent Prompt Synthesizer (Gemini 3.7 Flash)
+### 1.2 Multi-Agent Prompt Synthesizer (Gemini 2.5 Flash)
 
 #### **What It Is:**
 A specialized Google Cloud Agent Development Kit (`google-adk>=2.8.0`) multi-agent pipeline that crafts structured prompt payloads for next-gen video generators (e.g., Gemini Omni Flash, Runway Gen-3, Kling AI).
@@ -100,7 +100,7 @@ A specialized Google Cloud Agent Development Kit (`google-adk>=2.8.0`) multi-age
 * Built-in retry and schema repair mechanisms (`backend/app/providers/reliability.py`) automatically fix and re-parse invalid model outputs without crashing the pipeline.
 
 #### **Why It Works That Way:**
-Generative video engines require extremely descriptive camera and lighting terminology. Generic descriptions result in flat, low-quality video. Gemini 3.7 Flash powered by the Google Cloud ADK acts as a seasoned Cinematographer and Director of Photography, translating brief topics into director-level instructions.
+Generative video engines require extremely descriptive camera and lighting terminology. Generic descriptions result in flat, low-quality video. Gemini 2.5 Flash powered by the Google Cloud ADK acts as a seasoned Cinematographer and Director of Photography, translating brief topics into director-level instructions.
 
 #### **Why We Did It:**
 To bridge the gap between non-technical storytellers and complex video diffusion models. Creators input high-level concepts; our official ADK agents construct studio-grade camera instructions and enforce brand governance.

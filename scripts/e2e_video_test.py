@@ -47,7 +47,7 @@ def main() -> None:
     print("\n--- 3. Generating & Approving Prompts with IBM Watsonx Safety Checks ---")
     prompts = []
     for scene_number in range(1, 4):
-        print(f"Generating prompt for scene {scene_number} with Gemini 3.7 Flash...")
+        print(f"Generating prompt for scene {scene_number} with Gemini 2.5 Flash...")
         response = client.post(f"/api/projects/{project_id}/prompts/next")
         response.raise_for_status()
         prompt_data = response.json()
