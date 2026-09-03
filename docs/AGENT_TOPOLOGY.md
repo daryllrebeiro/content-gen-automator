@@ -1,6 +1,6 @@
 # 🤖 ADK Multi-Agent Topology & Agent2Agent (A2A) Protocols
 
-This document details the multi-agent hierarchy built with the **Google Cloud Agent Development Kit (ADK 2.8.0)**. In this release, the complete ADK multi-agent tree executes in-process within the FastAPI service; deployment to Vertex AI Agent Engine is packaged via `scripts/deploy-agent-engine.sh` with simulated registration output.
+This document details the multi-agent hierarchy built with the **Google Cloud Agent Development Kit (ADK 2.8.0)**. In this release, the complete ADK multi-agent tree executes in-process within the FastAPI service; deployment to Vertex AI Agent Engine is packaged via `scripts/deploy-agent-engine.sh` with simulated registration output; memory bank character bibles and style datastore guidelines persist via local atomic durable file storage (`.storage/`).
 
 ---
 
@@ -10,7 +10,7 @@ This document details the multi-agent hierarchy built with the **Google Cloud Ag
 OrchestratorAgent (Root ADK LlmAgent)
 ├── ResearchAgent (ADK Specialist)
 │   ├── parallel_search_tool() [Parallel Search API]
-│   └── vertex_search_style_tool() [Vertex AI Search Datastore]
+│   └── vertex_search_style_tool() [House Style Datastore Adapter]
 │
 ├── ScreenwriterAgent (ADK Specialist)
 │   ├── draft_narration() [Pacing & Word-Budget Constraints]
@@ -21,7 +21,7 @@ OrchestratorAgent (Root ADK LlmAgent)
 │   └── process_moodboard_frame() [Multimodal Image Reference]
 │
 ├── ContinuityAgent (ADK Specialist)
-│   ├── fetch_character_bible() [Agent Engine Memory Bank]
+│   ├── fetch_character_bible() [Durable Memory Bank Adapter]
 │   └── register_seed() [Cross-Project Visual Seed Persistence]
 │
 ├── GovernanceAgent (ADK Specialist)

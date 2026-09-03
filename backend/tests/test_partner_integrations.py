@@ -235,3 +235,28 @@ def test_budget_status_endpoint():
     assert data["cost_ceiling_exceeded"] is False
 
 
+def test_final_gate_check_caps_on_any_failure():
+    import sys
+    from pathlib import Path
+    root_dir = str(Path(__file__).resolve().parent.parent.parent)
+    if root_dir not in sys.path:
+        sys.path.insert(0, root_dir)
+    from scripts.final_gate_check import evaluate_gate_results
+    # If any gate fails (e.g. 7 pass, 1 fails), final_score must be strictly capped at 40.0
+    mock_results = [
+        ("Gate 1", True, "ok"),
+        ("Gate 2", True, "ok"),
+        ("Gate 3", True, "ok"),
+        ("Gate 4", True, "ok"),
+        ("Gate 5", True, "ok"),
+        ("Gate 6A", True, "ok"),
+        ("Gate 6B", False, "fail"),
+        ("Gate 7", True, "ok"),
+    ]
+    summary = evaluate_gate_results(mock_results)
+    assert summary["final_score"] == 40.0
+    assert summary["all_passed"] is False
+    assert "CAPPED AT 40.0" in summary["cap_status"]
+    assert summary["exit_code"] == 1
+
+

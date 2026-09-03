@@ -322,7 +322,7 @@ Enterprise brands cannot risk automated agents publishing content that violates 
 ---
 
 ### 4.2 Automated Testing & Verification Suite
-* **94 Unit & Contract Tests Passing:** Located in `backend/tests/` covering:
+* **95 Unit & Contract Tests Passing:** Located in `backend/tests/` covering:
   * Partner integrations & FinOps ceilings (`test_partner_integrations.py`)
   * Official Google Cloud ADK agent hierarchy (`test_adk_agents.py`)
   * Durable memory persistence across processes (`test_memory_persistence.py`)

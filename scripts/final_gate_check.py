@@ -176,6 +176,45 @@ def check_gate_7_demo_video(url: str) -> tuple[bool, str]:
         return False, f"Connection to {url} failed: {type(e).__name__} {e}"
 
 
+def evaluate_gate_results(results: list[tuple[str, bool, str]]) -> dict:
+    """Evaluates gates and returns final readiness score with strict 40-point cap on ANY failure."""
+    total_gates = len(results)
+    passed_count = sum(1 for _, ok, _ in results if ok)
+    all_passed = (passed_count == total_gates)
+    failing_gates = [name for name, ok, _ in results if not ok]
+
+    # Check partner / video statuses
+    replit_live = results[6][1] if len(results) > 6 else False
+    video_live = results[7][1] if len(results) > 7 else False
+
+    uncapped_score = 86.5  # Core rubric baseline with verified cost ceiling
+    if replit_live:
+        uncapped_score += 4.0  # Secondary Partner Depth credit for verified live Replit
+    if video_live:
+        uncapped_score += 5.0  # Demo video credit
+
+    if all_passed:
+        final_score = uncapped_score
+        cap_status = "UNLOCKED (All compliance gates verified passing)"
+        exit_code = 0
+    else:
+        final_score = 40.0
+        failing_names = ", ".join(failing_gates)
+        cap_status = f"CAPPED AT 40.0 ({len(failing_gates)} gate(s) failing: {failing_names})"
+        exit_code = 1
+
+    return {
+        "passed_count": passed_count,
+        "total_gates": total_gates,
+        "all_passed": all_passed,
+        "failing_gates": failing_gates,
+        "uncapped_score": uncapped_score,
+        "final_score": final_score,
+        "cap_status": cap_status,
+        "exit_code": exit_code,
+    }
+
+
 def run_gate_suite(gcp_url: str, replit_url: str, video_url: str) -> int:
     print("=" * 96)
     print("      AGENTIC CINEMA: THE BLOCKBUSTER HACKATHON -- DUAL-DEPLOYMENT GATE VERIFICATION     ")
@@ -188,7 +227,7 @@ def run_gate_suite(gcp_url: str, replit_url: str, video_url: str) -> int:
     gates = [
         ("Gate 1: License & Repo Integrity", lambda: check_gate_1_license_and_repo()),
         ("Gate 2: Zero Committed Secrets", lambda: check_gate_2_zero_secrets()),
-        ("Gate 3: Automated Test Suite (94)", lambda: check_gate_3_tests_and_invariants()),
+        ("Gate 3: Automated Test Suite (95)", lambda: check_gate_3_tests_and_invariants()),
         ("Gate 4: Official ADK Primitives", lambda: check_gate_4_adk_architecture()),
         ("Gate 5: IBM watsonx Track Gate", lambda: check_gate_5_ibm_watsonx_track()),
         ("Gate 6A: Hosted Google Cloud Run URL", lambda: check_http_endpoint(gcp_url, "Cloud Run")[:2]),
@@ -213,32 +252,14 @@ def run_gate_suite(gcp_url: str, replit_url: str, video_url: str) -> int:
         print(f"{name:<40} | {status_str:<10} | {clean_msg}")
     print("-" * 96)
 
-    # Calculate results
-    gcp_live = results[5][1]
-    replit_live = results[6][1]
-    video_live = results[7][1]
-    core_gates_passed = sum(1 for _, ok, _ in results[:5])
+    summary = evaluate_gate_results(results)
 
-    # Core gates + Cloud Run unlocks the 40 point cap
-    if gcp_live:
-        cap_unlocked = True
-        readiness_score = 86.0
-        if replit_live:
-            readiness_score += 4.0  # Secondary Partner Depth credit for verified live Replit
-        if video_live:
-            readiness_score += 5.0
-        cap_status = f"CAP UNLOCKED (Live Cloud Run verified: {gcp_url})"
-    else:
-        cap_unlocked = False
-        readiness_score = 40.0
-        cap_status = "CAPPED AT 40.0 (Cloud Run deployment not yet verified)"
-
-    passed_count = sum(1 for _, ok, _ in results if ok)
-    print(f"\nTOTAL GATES EVALUATED    : {passed_count} / {len(gates)} passing")
-    print(f"FINAL READINESS SCORE    : {readiness_score:.1f} / 100.0 ({cap_status})")
+    print(f"\nTOTAL GATES EVALUATED    : {summary['passed_count']} / {summary['total_gates']} passing")
+    print(f"UNCAPPED SUB-TOTAL       : {summary['uncapped_score']:.1f} / 100.0 (Pre-cap potential)")
+    print(f"FINAL READINESS SCORE    : {summary['final_score']:.1f} / 100.0 ({summary['cap_status']})")
     print("=" * 96)
 
-    return 0 if cap_unlocked else 1
+    return summary["exit_code"]
 
 
 def main():
