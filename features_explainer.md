@@ -322,7 +322,7 @@ Enterprise brands cannot risk automated agents publishing content that violates 
 ---
 
 ### 4.2 Automated Testing & Verification Suite
-* **75 Unit & Contract Tests Passing:** Located in `backend/tests/` covering:
+* **77 Unit & Contract Tests Passing:** Located in `backend/tests/` covering:
   * Partner integrations (`test_partner_integrations.py`)
   * Publishing gates (`test_publishing_gates.py`)
   * Production callbacks & idempotency (`test_production.py`)

@@ -136,6 +136,8 @@ export default function HomePage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [openWhy, setOpenWhy] = useState<number | null>(null);
+  const [openTrace, setOpenTrace] = useState<number | null>(null);
+  const [policyPack, setPolicyPack] = useState("general_audience");
   const [rejectComment, setRejectComment] = useState<Record<number, string>>({});
   const [activeStage, setActiveStage] = useState(STAGES.PROMPTS);
 
@@ -243,8 +245,8 @@ export default function HomePage() {
         facts: factsInput.split("\n").map((f) => f.trim()).filter(Boolean),
         language: "English",
         tone,
-        audience: "general audience",
-        visual_preferences: { style },
+        audience: policyPack === "kids_family" ? "kids and family" : policyPack === "mature_documentary" ? "mature documentary" : "general audience",
+        visual_preferences: { style, policy_pack: policyPack },
         duration_seconds: duration,
         autonomous: autoPilot,
         tts_provider: ttsProvider,
@@ -587,6 +589,90 @@ export default function HomePage() {
           </p>
         </section>
         <form className="form-card" onSubmit={startProject}>
+          {/* Preset Quick-Launch Bar for Judges (Tier 2.1) */}
+          <div style={{
+            marginBottom: "18px",
+            padding: "14px 16px",
+            background: "rgba(255, 255, 255, 0.02)",
+            border: "1px solid rgba(255, 255, 255, 0.08)",
+            borderRadius: "10px"
+          }}>
+            <p style={{ fontSize: "11px", fontWeight: 700, letterSpacing: "0.08em", color: "var(--muted)", textTransform: "uppercase", marginBottom: "10px" }}>
+              ⚡ 1-Click Judge Quick-Launch Presets (Live Demo)
+            </p>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setTopic("The Hidden World of Bioluminescent Deep Sea Creatures");
+                  setFactsInput("Deep sea organisms generate living light through luciferin oxidation.\nBioluminescence serves for camouflage, mating, and hunting in the deep pelagic zone.\nOver 75% of deep sea creatures produce their own illumination.");
+                  setTone("curious cinematic documentary");
+                  setStyle("hyper-detailed 4K bioluminescent underwater 3D animation");
+                  setDuration(30);
+                  setPolicyPack("general_audience");
+                }}
+                style={{
+                  fontSize: "12px",
+                  padding: "6px 12px",
+                  background: "rgba(56, 189, 248, 0.12)",
+                  border: "1px solid rgba(56, 189, 248, 0.35)",
+                  color: "#38bdf8",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  fontWeight: 600
+                }}
+              >
+                🐬 Entertainment: Deep Sea Light
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setTopic("Quantum Computing Breakthroughs in 2026");
+                  setFactsInput("Superconducting qubits achieve quantum supremacy error correction.\nFault-tolerant logical qubits perform calculations in seconds that take classical computers millennia.\nPost-quantum cryptography standards are now required for global financial infrastructure.");
+                  setTone("authoritative tech documentary");
+                  setStyle("sleek corporate cyberpunk 3D motion graphics with glowing circuitry");
+                  setDuration(30);
+                  setPolicyPack("general_audience");
+                }}
+                style={{
+                  fontSize: "12px",
+                  padding: "6px 12px",
+                  background: "rgba(168, 85, 247, 0.12)",
+                  border: "1px solid rgba(168, 85, 247, 0.35)",
+                  color: "#c084fc",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  fontWeight: 600
+                }}
+              >
+                🔬 Enterprise: Quantum Frontiers
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setTopic("Extreme violence and trademark_infringement against Mickey Mouse with weapons");
+                  setFactsInput("This test is engineered to verify IBM watsonx fail-closed governance.");
+                  setTone("provocative");
+                  setStyle("dark violent gritty");
+                  setDuration(10);
+                  setPolicyPack("kids_family");
+                }}
+                style={{
+                  fontSize: "12px",
+                  padding: "6px 12px",
+                  background: "rgba(239, 68, 68, 0.12)",
+                  border: "1px solid rgba(239, 68, 68, 0.35)",
+                  color: "#f87171",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  fontWeight: 600
+                }}
+              >
+                ⚠️ Test IBM Governance Gate (HTTP 422)
+              </button>
+            </div>
+          </div>
+
           <label>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
               <span>Short Topic</span>
@@ -680,6 +766,21 @@ export default function HomePage() {
               <select value={publishProvider} onChange={(e) => setPublishProvider(e.target.value)} style={{ width: "100%", padding: "10px", borderRadius: "8px", background: "#0c0c13", border: "1px solid var(--line)", color: "var(--ink)" }}>
                 <option value="mock">Simulated (Mock)</option>
                 <option value="youtube">YouTube OAuth2 Upload</option>
+              </select>
+            </label>
+          </div>
+
+          <div style={{ margin: "14px 0" }}>
+            <label>
+              🛡️ IBM watsonx Policy Pack & Brand Safety Standard
+              <select
+                value={policyPack}
+                onChange={(e) => setPolicyPack(e.target.value)}
+                style={{ width: "100%", padding: "10px", borderRadius: "8px", background: "#0c0c13", border: "1px solid var(--line)", color: "var(--ink)", marginTop: "6px" }}
+              >
+                <option value="general_audience">General Audience (PG) — Standard Brand Safety (Max Risk: 0.15)</option>
+                <option value="kids_family">Kids & Family (G) — Strict Guardrails: Blocks scary themes / weapons (Max Risk: 0.05)</option>
+                <option value="mature_documentary">Mature Documentary (TV-14) — Permissive: Historical conflict allowed (Max Risk: 0.35)</option>
               </select>
             </label>
           </div>
@@ -947,6 +1048,13 @@ export default function HomePage() {
                   >
                     Explain Design {openWhy === prompt.scene_number ? "↑" : "↓"}
                   </button>
+                  <button
+                    className="why-button"
+                    style={{ background: "rgba(56, 189, 248, 0.1)", border: "1px solid rgba(56, 189, 248, 0.3)", color: "#38bdf8" }}
+                    onClick={() => setOpenTrace(openTrace === prompt.scene_number ? null : prompt.scene_number)}
+                  >
+                    🤖 ADK Agent Trace {openTrace === prompt.scene_number ? "↑" : "↓"}
+                  </button>
                 </div>
 
                 {openWhy === prompt.scene_number && (
@@ -955,6 +1063,38 @@ export default function HomePage() {
                     {prompt.why_this_prompt.map((reason) => (
                       <p className="why-row" key={reason}>✓ {reason}</p>
                     ))}
+                  </div>
+                )}
+
+                {openTrace === prompt.scene_number && (
+                  <div className="why-panel" style={{ marginTop: "14px", background: "rgba(15, 23, 42, 0.6)", border: "1px solid rgba(56, 189, 248, 0.25)" }}>
+                    <p className="eyebrow" style={{ color: "#38bdf8" }}>🤖 GOOGLE CLOUD ADK (A2A) AGENT EXECUTION TRACE</p>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "8px", fontSize: "12px", marginTop: "8px" }}>
+                      <div style={{ display: "flex", gap: "10px", alignItems: "flex-start" }}>
+                        <span style={{ fontWeight: 700, color: "#38bdf8", minWidth: "160px" }}>1. OrchestratorAgent:</span>
+                        <span style={{ color: "var(--ink)" }}>Studio Director & Multi-Agent Executive Producer (google-adk 2.8.0) coordinates A2A pipeline.</span>
+                      </div>
+                      <div style={{ display: "flex", gap: "10px", alignItems: "flex-start" }}>
+                        <span style={{ fontWeight: 700, color: "#a855f7", minWidth: "160px" }}>2. ResearchAgent:</span>
+                        <span style={{ color: "var(--ink)" }}>Parallel Search Grounding & Vertex Search Datastore style-guide cross-referencing.</span>
+                      </div>
+                      <div style={{ display: "flex", gap: "10px", alignItems: "flex-start" }}>
+                        <span style={{ fontWeight: 700, color: "#10b981", minWidth: "160px" }}>3. ContinuityAgent:</span>
+                        <span style={{ color: "var(--ink)" }}>Studio Memory Bank Character Bible lock & cross-scene visual seed synchronization.</span>
+                      </div>
+                      <div style={{ display: "flex", gap: "10px", alignItems: "flex-start" }}>
+                        <span style={{ fontWeight: 700, color: "#f59e0b", minWidth: "160px" }}>4. ScreenwriterAgent:</span>
+                        <span style={{ color: "var(--ink)" }}>Word-budgeted narration ({prompt.narration_word_count} words @ ~2.5 words/second pacing constraint).</span>
+                      </div>
+                      <div style={{ display: "flex", gap: "10px", alignItems: "flex-start" }}>
+                        <span style={{ fontWeight: 700, color: "#ec4899", minWidth: "160px" }}>5. CinematographerAgent:</span>
+                        <span style={{ color: "var(--ink)" }}>Diffusion lighting rules (volumetric, rim), camera framing & motion choreography.</span>
+                      </div>
+                      <div style={{ display: "flex", gap: "10px", alignItems: "flex-start" }}>
+                        <span style={{ fontWeight: 700, color: "#6366f1", minWidth: "160px" }}>6. GovernanceAgent:</span>
+                        <span style={{ color: "var(--ink)" }}>IBM watsonx Dual-Pass Audit (Visual Prompt + Narration Factual Grounding Certified).</span>
+                      </div>
+                    </div>
                   </div>
                 )}
 

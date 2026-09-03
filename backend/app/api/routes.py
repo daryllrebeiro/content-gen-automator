@@ -273,6 +273,7 @@ def create_project(request: ProjectCreateRequest) -> ProjectResponse:
             video_provider=request.video_provider,
             stitch_provider=request.stitch_provider,
             publish_provider=request.publish_provider,
+            token_budget=request.token_budget,
         )
     )
     # Partner Integrations: Grafana Observability + ClickHouse Analytics
@@ -329,7 +330,8 @@ def generate_first_prompt(project_id: UUID) -> PromptResponse:
         telemetry.record_prompt_generation(
             duration_seconds=latency,
             input_tokens=prompt.estimated_input_tokens or 250,
-            output_tokens=prompt.estimated_output_tokens or 150
+            output_tokens=prompt.estimated_output_tokens or 150,
+            project_id=str(project_id)
         )
         clickhouse_analytics.log_scene_telemetry(
             project_id=str(project_id),
@@ -387,7 +389,8 @@ def regenerate_prompt(project_id: UUID, scene_number: int) -> PromptResponse:
         telemetry.record_prompt_generation(
             duration_seconds=latency,
             input_tokens=prompt.estimated_input_tokens or 300,
-            output_tokens=prompt.estimated_output_tokens or 180
+            output_tokens=prompt.estimated_output_tokens or 180,
+            project_id=str(project_id)
         )
         clickhouse_analytics.log_scene_telemetry(
             project_id=str(project_id),
@@ -1206,6 +1209,15 @@ def public_submit_production(
         if project.status not in {project.status.APPROVED, project.status.COMPLETED}:
             raise ProjectStateError("Approve the prompt before submitting production.")
         
+        # Enterprise Cost-Ceiling Guardrail
+        budget = getattr(project.input, "token_budget", 50000)
+        is_exceeded, consumed, limit = telemetry.is_cost_ceiling_exceeded(str(project_id), budget)
+        if is_exceeded:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Cost ceiling exceeded: Project token consumption ({consumed}) reached budget limit ({limit} tokens). Auto-Pilot render halted."
+            )
+
         job = project_service.repository.get_production_job(existing.response["job_id"]) if existing is not None and hasattr(project_service.repository, "get_production_job") else None
         if job is None:
             job = production_service.submit_clip(project, scene_number, project_service.repository)

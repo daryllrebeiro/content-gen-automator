@@ -126,3 +126,27 @@ def test_governance_violation_halts_generation():
     bad_gen = client.post(f"/api/projects/{bad_id}/generate")
     assert bad_gen.status_code == 422
     assert "IBM watsonx.governance safety violation" in bad_gen.json()["detail"]
+
+
+def test_cost_ceiling_enforcement_halts_production():
+    # Create project with low token ceiling of 100 tokens
+    res = client.post(
+        "/api/projects",
+        json={"topic": "Deep Sea Science Mysteries", "duration_seconds": 10, "token_budget": 100},
+    )
+    assert res.status_code == 200
+    p_id = res.json()["id"]
+
+    # Generate prompt (generates ~400 tokens, which exceeds the 100 ceiling)
+    gen = client.post(f"/api/projects/{p_id}/generate")
+    assert gen.status_code == 200
+    
+    # Approve prompt
+    appr = client.post(f"/api/projects/{p_id}/prompts/1/approve", json={"decision": "APPROVE", "actor": "director"})
+    assert appr.status_code == 200
+
+    # Submitting production job must fail with HTTP 429 Cost Ceiling Exceeded
+    prod_res = client.post(f"/api/projects/{p_id}/scenes/1/production")
+    assert prod_res.status_code == 429
+    assert "Cost ceiling exceeded" in prod_res.json()["detail"]
+

@@ -48,6 +48,7 @@ class ProjectInput:
     video_provider: str = "mock"
     stitch_provider: str = "mock"
     publish_provider: str = "mock"
+    token_budget: int = 50000
 
 
 

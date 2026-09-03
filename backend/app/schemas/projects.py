@@ -21,6 +21,7 @@ class ProjectCreateRequest(BaseModel):
     video_provider: str = Field(default="mock")
     stitch_provider: str = Field(default="mock")
     publish_provider: str = Field(default="mock")
+    token_budget: int = Field(default=50000, description="Max token cost ceiling for Auto-Pilot runs")
 
 
 

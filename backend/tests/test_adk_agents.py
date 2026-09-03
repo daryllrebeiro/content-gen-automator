@@ -61,6 +61,18 @@ def test_governance_agent_dual_pass_audit():
     assert audit["risk_score"] < 0.15
 
 
+def test_governance_agent_semantic_contradiction_detection():
+    # Narration explicitly contradicts the verified fact
+    audit = governance_agent.audit_scene(
+        visual_prompt="A crystal cave glowing with sapphire crystals.",
+        narration="Contrary to myth, crystals never grow over millions of years.",
+        facts=["Crystals grew over millions of years."]
+    )
+    assert audit["decision"] == "flagged"
+    assert audit["narration_audit"]["contradiction_detected"] is True
+    assert "Semantic contradiction detected" in audit["narration_audit"]["semantic_reasoning"]
+
+
 def test_orchestrator_agent_a2a_handoff_sequence():
     result = orchestrator_agent.orchestrate_scene_generation(
         project_id="test-proj-001",

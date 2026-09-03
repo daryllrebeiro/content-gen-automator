@@ -19,6 +19,16 @@ class GrafanaFaroTracker {
     }
   }
 
+  public init() {
+    if (typeof window !== "undefined" && process.env.NEXT_PUBLIC_FARO_COLLECTOR_URL) {
+      this.enabled = true;
+    }
+  }
+
+  public trackEvent(name: string, attributes: Record<string, string | number | boolean> = {}) {
+    this.trackUserAction(name, attributes);
+  }
+
   public trackUserAction(name: string, attributes: Record<string, string | number | boolean> = {}) {
     if (!this.enabled) return;
     try {

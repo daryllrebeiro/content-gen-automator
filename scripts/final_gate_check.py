@@ -176,7 +176,7 @@ def run_gate_suite(target_url: str, video_url: str) -> int:
     gates = [
         ("Gate 1: License & Repo Integrity", lambda: check_gate_1_license_and_repo()),
         ("Gate 2: Zero Committed Secrets", lambda: check_gate_2_zero_secrets()),
-        ("Gate 3: Automated Test Suite (75)", lambda: check_gate_3_tests_and_invariants()),
+        ("Gate 3: Automated Test Suite (77)", lambda: check_gate_3_tests_and_invariants()),
         ("Gate 4: Official ADK Primitives", lambda: check_gate_4_adk_architecture()),
         ("Gate 5: IBM watsonx Track Gate", lambda: check_gate_5_ibm_watsonx_track()),
         ("Gate 6: Responding Live URL", lambda: check_gate_6_live_url(target_url)[:2]),

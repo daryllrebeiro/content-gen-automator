@@ -5,7 +5,7 @@
 [![Next.js: 15+](https://img.shields.io/badge/Next.js-15-black.svg)](https://nextjs.org/)
 [![Gemini: 2.5 Flash](https://img.shields.io/badge/Gemini-2.5%20Flash-orange.svg)](https://cloud.google.com/vertex-ai)
 [![IBM: watsonx](https://img.shields.io/badge/IBM-watsonx.governance-purple.svg)](https://www.ibm.com/products/watsonx-governance)
-[![Tests: 75 Passing](https://img.shields.io/badge/Tests-75%20Passing-brightgreen.svg)](backend/tests/)
+[![Tests: 77 Passing](https://img.shields.io/badge/Tests-77%20Passing-brightgreen.svg)](backend/tests/)
 
 > **A stateful, multi-agent cinematic production studio built with Gemini Enterprise & Google Cloud ADK, governed by IBM watsonx, grounded by Parallel Search, monitored by Grafana Labs, analyzed in ClickHouse, and deployable in 1-click on Replit & Google Cloud Run.**
 
@@ -49,7 +49,7 @@ graph TD
     end
 
     subgraph "Production & Multi-Platform Delivery"
-        PublishingAgent --> FFmpegStitch[FFmpeg 9:16 / 1:1 + Brand Kit Watermarks]
+        PublishingAgent --> FFmpegStitch[FFmpeg Video Concatenator & Muxer]
         PublishingAgent --> YouTubeLive[YouTube Shorts API]
         PublishingAgent --> CertService[Signed Compliance Certificate JSON + PDF]
     end

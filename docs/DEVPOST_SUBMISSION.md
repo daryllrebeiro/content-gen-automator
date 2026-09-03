@@ -42,7 +42,7 @@ ContentGenAutomator Studio is a production-grade, stateful, multi-agent cinemati
 * **Brand Governance Gate (IBM watsonx):** Primary hackathon track spine. The governance adapter enforces customizable policy packs (*General Audience*, *Kids & Family*, *Mature Documentary*). While the codebase includes live API client integration for IBM watsonx.governance endpoints (`ibm_governance.py`), in this deployed submission instance without external enterprise IBM SaaS credentials configured, the governance gate runs our deterministic local rule-based safety and copyright heuristics. This ensures unbypassable fail-closed governance (halting generation with HTTP 422 upon violation) with 100% reliability and zero external latency.
 * **Observability (Grafana Labs):** Real-time AI metrics exposition via Prometheus `/metrics` and OpenLIT OTLP exporter tracking token consumption, latency percentiles, and governance decision ratios.
 * **Analytics (ClickHouse Cloud):** High-throughput columnar analytics engine with materialized views (`studio_command_center_mv`) and anomaly detection window functions.
-* **Full-Stack Application:** FastAPI backend with strict state machine contracts, 75 automated unit and contract tests, and a Next.js 15 cyber-neon studio UI with Grafana Faro RUM and real-time governance audit visualizers.
+* **Full-Stack Application:** FastAPI backend with strict state machine contracts, 77 automated unit and contract tests, and a Next.js 15 cyber-neon studio UI with Grafana Faro RUM and real-time governance audit visualizers.
 * **Cloud Deployment (Replit):** Containerized web service running FastAPI and Next.js with automatic port resolution (`--port ${PORT:-8000}`) and cross-origin regex support for all `*.replit.app` domains.
 
 ---

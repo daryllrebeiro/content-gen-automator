@@ -27,6 +27,7 @@ class GrafanaTelemetry:
         self.parallel_queries = 0
         self.parallel_cache_hits = 0
         self.clickhouse_events_logged = 0
+        self.project_tokens = defaultdict(int)
 
         # Attempt to initialize OpenLIT if installed and credentials exist
         if os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT") or os.getenv("GRAFANA_OTLP_TOKEN"):
@@ -45,10 +46,23 @@ class GrafanaTelemetry:
     def record_project_created(self, topic: str = ""):
         self.projects_created += 1
 
-    def record_prompt_generation(self, duration_seconds: float, input_tokens: int = 0, output_tokens: int = 0):
+    def record_prompt_generation(self, duration_seconds: float, input_tokens: int = 0, output_tokens: int = 0, project_id: str = ""):
         self.prompt_latencies.append(duration_seconds)
         self.input_tokens += input_tokens
         self.output_tokens += output_tokens
+        if project_id:
+            self.project_tokens[str(project_id)] += (input_tokens + output_tokens)
+
+    def is_cost_ceiling_exceeded(self, project_id: str, token_budget: int = 50000) -> tuple[bool, int, int]:
+        """
+        Enforces enterprise cost-ceiling guardrails.
+        Returns (is_exceeded, tokens_consumed, token_budget).
+        """
+        consumed = self.project_tokens.get(str(project_id), 0)
+        return (consumed > token_budget, consumed, token_budget)
+
+    def get_project_token_usage(self, project_id: str) -> int:
+        return self.project_tokens.get(str(project_id), 0)
 
     def record_production_job(self, delta: int = 1):
         self.active_jobs = max(0, self.active_jobs + delta)
