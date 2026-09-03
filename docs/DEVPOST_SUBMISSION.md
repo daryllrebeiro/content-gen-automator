@@ -11,7 +11,8 @@ An enterprise-governed cinematic production studio coordinating a 7-agent Google
 ---
 
 ### Links
-* 🌐 **Live Studio URL:** `[LIVE_URL]`
+* 🌐 **Live Production (Google Cloud Run):** `[GCP_URL]`
+* ⚡ **Instant Fork & Run (Replit):** `[REPLIT_URL]`
 * 🎥 **Demo Walkthrough Video:** `[VIDEO_URL]`
 * 💻 **GitHub Repository:** [https://github.com/daryllrebeiro/ContentGenAutomator](https://github.com/daryllrebeiro/ContentGenAutomator)
 * 📜 **License:** Apache 2.0 (Open Source)
@@ -43,7 +44,9 @@ ContentGenAutomator Studio is a production-grade, stateful, multi-agent cinemati
 * **Observability (Grafana Labs):** Real-time AI metrics exposition via Prometheus `/metrics` and OpenLIT OTLP exporter tracking token consumption, latency percentiles, and governance decision ratios.
 * **Analytics (ClickHouse Cloud):** High-throughput columnar analytics engine with materialized views (`studio_command_center_mv`) and anomaly detection window functions.
 * **Full-Stack Application:** FastAPI backend with strict state machine contracts, 94 automated unit and contract tests, and a Next.js 15 cyber-neon studio UI with Grafana Faro RUM, real-time FinOps budget progress bar, Governance Advisor pre-submission badges, Policy Pack Manager, and interactive Cryptographic Certificate Verifier.
-* **Cloud Deployment (Replit):** Containerized web service running FastAPI and Next.js with automatic port resolution (`--port ${PORT:-8000}`) and cross-origin regex support for all `*.replit.app` domains.
+* **Dual Cloud Deployments (Google Cloud Run & Replit):**
+  - **Google Cloud Run (Primary Production):** Serverless container deployment with Artifact Registry, automated Cloud Build pipelines, Secret Manager credentials injection (`GEMINI_API_KEY`), and free-tier infrastructure guardrails (`min-instances=0`, `max-instances=3`).
+  - **Replit (Instant Fork & Run):** Configured via `.replit` and `replit_start.sh` for one-click developer evaluation in the browser with full cross-origin support and verified live deployment.
 
 ---
 
