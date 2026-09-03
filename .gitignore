@@ -32,4 +32,5 @@ htmlcov/
 
 # Static media
 backend/app/static/
+.storage/
 

@@ -42,7 +42,7 @@ ContentGenAutomator Studio is a production-grade, stateful, multi-agent cinemati
 * **Brand Governance Gate (IBM watsonx):** Primary hackathon track spine. The governance adapter enforces customizable policy packs (*General Audience*, *Kids & Family*, *Mature Documentary*). While the codebase includes live API client integration for IBM watsonx.governance endpoints (`ibm_governance.py`), in this deployed submission instance without external enterprise IBM SaaS credentials configured, the governance gate runs our deterministic local rule-based safety and copyright heuristics. This ensures unbypassable fail-closed governance (halting generation with HTTP 422 upon violation) with 100% reliability and zero external latency.
 * **Observability (Grafana Labs):** Real-time AI metrics exposition via Prometheus `/metrics` and OpenLIT OTLP exporter tracking token consumption, latency percentiles, and governance decision ratios.
 * **Analytics (ClickHouse Cloud):** High-throughput columnar analytics engine with materialized views (`studio_command_center_mv`) and anomaly detection window functions.
-* **Full-Stack Application:** FastAPI backend with strict state machine contracts, 77 automated unit and contract tests, and a Next.js 15 cyber-neon studio UI with Grafana Faro RUM and real-time governance audit visualizers.
+* **Full-Stack Application:** FastAPI backend with strict state machine contracts, 94 automated unit and contract tests, and a Next.js 15 cyber-neon studio UI with Grafana Faro RUM, real-time FinOps budget progress bar, Governance Advisor pre-submission badges, Policy Pack Manager, and interactive Cryptographic Certificate Verifier.
 * **Cloud Deployment (Replit):** Containerized web service running FastAPI and Next.js with automatic port resolution (`--port ${PORT:-8000}`) and cross-origin regex support for all `*.replit.app` domains.
 
 ---
@@ -53,8 +53,9 @@ Our biggest technical challenge was avoiding the trap of "superficial integratio
 
 Rather than sweeping this under the rug, we subjected our codebase to strict adversarial audits:
 1. **Migrating to Official ADK Primitives:** We refactored all 7 custom agent classes to inherit directly from official `google.adk.agents.LlmAgent`, wired typed tool contracts into every agent, and verified that A2A handoffs execute cleanly while preserving all domain finite-state machine (FSM) invariants.
-2. **Fail-Closed Governance Verification:** We ensured that the IBM watsonx governance gate isn't just an advisory badge in the UI, but an active, blocking dependency in the FastAPI route (`/api/projects/{id}/prompts/first`) that halts generation with HTTP 422 if safety or copyright risk thresholds fail.
-3. **Production Deployment Nuances:** We resolved container port mapping, CORS origins, and strict authentication behavior across development and production modes (`APP_ENV=production`) to guarantee that the live Replit deployment runs identically to local development.
+2. **Fail-Closed Governance Verification:** We ensured that the IBM watsonx governance gate isn't just an advisory badge in the UI, but an active, blocking dependency in the FastAPI route (`/api/projects/{id}/prompts/first`) that halts generation with HTTP 422 if safety or copyright risk thresholds fail. We also implemented deep semantic synonym expansion and polar contradiction detection to block subtle inverted hallucinations that evade standard n-gram checks.
+3. **Durable Multi-Agent Memory:** We migrated in-memory memory banks to real atomic file persistence (`.storage/memory_bank.json` and `.storage/vertex_search_datastore.json`), proven with a dedicated cross-process verification suite (`verify_memory_persistence.py`).
+4. **Production Deployment Nuances:** We resolved container port mapping, CORS origins, and strict authentication behavior across development and production modes (`APP_ENV=production`) to guarantee that the live Replit deployment runs identically to local development.
 
 This rigorous verification cycle significantly improved our architecture's defensibility, reliability, and code quality.
 
@@ -62,7 +63,6 @@ This rigorous verification cycle significantly improved our architecture's defen
 
 ### 🚀 What's Next for ContentGenAutomator Studio
 
-1. **Vertex AI Agent Engine Hosting:** Transition from running the ADK multi-agent tree in-process to deploying it as a hosted Google Cloud Vertex AI Reasoning Engine service using our pre-built `deploy-agent-engine.sh` packaging pipeline.
-2. **Persistent Cloud Memory Bank:** Extend the in-process studio continuity adapter to write character bibles and seed locks directly to Google Cloud Firestore or Vertex AI Search Datastores for durable multi-director tenancy.
-3. **Live Generative Video API Hooks:** Connect direct API callbacks to Kling AI, Runway Gen-3, and Gemini Omni Flash generative video endpoints to replace simulated video callbacks with live diffusion rendering.
-4. **Enterprise watsonx Multi-Tenancy:** Add multi-tenant IBM watsonx governance dashboards allowing corporate compliance teams to enforce custom brand risk policies across distributed content creation teams.
+1. **Vertex AI Agent Engine Hosted Cluster:** Transition from running the ADK multi-agent tree in-process to deploying it to hosted Google Cloud Vertex AI Reasoning Engine instances using our verified `deploy-agent-engine.sh` and `agent_engine_client.py` delegation bridge.
+2. **Live Generative Video API Hooks:** Connect direct API webhooks to Kling AI, Runway Gen-3, and Gemini Omni Flash generative video endpoints to replace simulated video callbacks with live diffusion rendering.
+3. **Enterprise watsonx Multi-Tenancy:** Add multi-tenant IBM watsonx governance dashboards allowing corporate compliance teams to enforce custom brand risk policies across distributed content creation teams.

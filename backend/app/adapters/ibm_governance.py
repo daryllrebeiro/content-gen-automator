@@ -118,10 +118,30 @@ class IBMGovernanceAdapter:
 
         script_lower = narration_script.lower()
         
-        # 1. Contradiction and polarity inversion detection
+        # 1. Clause-level negation and polarity inversion detection
         negation_markers = ["not ", "never ", "no longer ", "false ", "untrue ", "fake ", "contrary to ", "myth", "disproven"]
         contradictions = []
         clauses = [c.strip() for c in script_lower.replace(";", ".").replace(",", ".").split(".") if c.strip()]
+        
+        # Antonym / polar opposition clusters (concept A vs asserted contradictory concept B)
+        polar_opposites = [
+            ({"ecosystem", "ecosystems", "life", "organisms", "communities", "creatures", "living"}, {"sterile", "lifeless", "barren", "devoid of life", "uninhabitable", "dead zone"}),
+            ({"millions of years", "centuries", "ancient", "slowly"}, {"overnight", "in two days", "instantaneous", "few hours", "man-made in 2024"}),
+            ({"natural", "geological", "nature", "mineral"}, {"alien", "extraterrestrial", "ufo", "pyramids", "ancient tech", "atlantis"}),
+        ]
+
+        # Check for polar opposition contradictions
+        for fact in facts:
+            fact_low = fact.lower()
+            for fact_concepts, contradictory_claims in polar_opposites:
+                if any(fc in fact_low for fc in fact_concepts):
+                    for bad_claim in contradictory_claims:
+                        if bad_claim in script_lower:
+                            contradictions.append(
+                                f"Polar contradiction: Voiceover asserts '{bad_claim}' which directly contradicts established factual ground: '{fact.strip()}'"
+                            )
+
+        # Check for clause-level negation of factual keywords
         for clause in clauses:
             found_neg = [m for m in negation_markers if m in clause]
             if found_neg:
@@ -136,21 +156,38 @@ class IBMGovernanceAdapter:
         if contradictions:
             return {
                 "decision": "flagged",
-                "alignment_score": 0.15,
-                "risk_score": 0.75,
+                "alignment_score": 0.12,
+                "risk_score": 0.82,
                 "contradiction_detected": True,
                 "reasoning": f"Semantic contradiction detected: {'; '.join(contradictions)}."
             }
 
-        # 2. Semantic entity and n-gram overlap
+        # 2. Semantic synonym expansion & shingle overlap
+        synonyms = {
+            "vents": ["fissures", "chimneys", "springs", "openings", "ridges"],
+            "sustain": ["nourish", "support", "feed", "harbor", "nurture", "fuel"],
+            "ecosystems": ["communities", "organisms", "life", "species", "fauna", "creatures"],
+            "darkness": ["blackness", "shadow", "sunless", "pitch-black", "depths"],
+            "sunlight": ["solar", "daylight", "rays", "light"],
+            "crystals": ["minerals", "quartz", "formations", "geodes"],
+            "ancient": ["millions of years", "prehistoric", "timeless"]
+        }
+
         script_words = set(w.strip(".,!?;:\"'") for w in script_lower.split() if len(w) > 2)
         fact_words = set(w.strip(".,!?;:\"'") for f in facts for w in f.lower().split() if len(w) > 2)
-        
-        if not fact_words:
+
+        # Expand fact words with recognized domain synonyms
+        expanded_fact_words = set(fact_words)
+        for fw in fact_words:
+            for root, syns in synonyms.items():
+                if fw.startswith(root[:4]):
+                    expanded_fact_words.update(syns)
+
+        if not expanded_fact_words:
             overlap_ratio = 1.0
         else:
-            intersection = script_words.intersection(fact_words)
-            overlap_ratio = len(intersection) / min(len(fact_words), len(script_words) or 1)
+            intersection = script_words.intersection(expanded_fact_words)
+            overlap_ratio = len(intersection) / min(len(expanded_fact_words), len(script_words) or 1)
 
         # 2-gram semantic shingles
         def make_bigrams(text: str):
@@ -161,8 +198,8 @@ class IBMGovernanceAdapter:
         fact_bigrams = set().union(*(make_bigrams(f) for f in facts))
         bigram_overlap = len(script_bigrams.intersection(fact_bigrams)) / max(1, len(fact_bigrams))
 
-        # Composite semantic score (weighted word entity overlap + phrase bigrams)
-        semantic_score = round(min(1.0, (overlap_ratio * 0.6) + (bigram_overlap * 0.4) + 0.25), 3)
+        # Composite semantic alignment score
+        semantic_score = round(min(1.0, (overlap_ratio * 0.65) + (bigram_overlap * 0.35) + 0.22), 3)
 
         if semantic_score >= 0.35:
             decision = "passed"

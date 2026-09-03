@@ -322,9 +322,14 @@ Enterprise brands cannot risk automated agents publishing content that violates 
 ---
 
 ### 4.2 Automated Testing & Verification Suite
-* **77 Unit & Contract Tests Passing:** Located in `backend/tests/` covering:
-  * Partner integrations (`test_partner_integrations.py`)
-  * Publishing gates (`test_publishing_gates.py`)
+* **94 Unit & Contract Tests Passing:** Located in `backend/tests/` covering:
+  * Partner integrations & FinOps ceilings (`test_partner_integrations.py`)
+  * Official Google Cloud ADK agent hierarchy (`test_adk_agents.py`)
+  * Durable memory persistence across processes (`test_memory_persistence.py`)
+  * Localization & subtitle cue tracks (`test_localization_end_to_end.py`)
+  * FFmpeg watermark compositing & multi-format export (`test_ffmpeg_compositing.py`)
+  * Batch production runner & YouTube Analytics feedback loop (`test_phase10_depth.py`)
+  * Publishing gates & manifest audits (`test_publishing_gates.py`)
   * Production callbacks & idempotency (`test_production.py`)
   * Fact checking & reliability (`test_evidence.py`, `test_provider_reliability.py`)
 * **End-to-End Orchestration Script:** [`scripts/e2e_video_test.py`](file:///c:/Users/Lenovo%20Laptop/dev/content-gen-automator/scripts/e2e_video_test.py) runs the entire multi-partner lifecycle in under 2 seconds.

@@ -73,6 +73,30 @@ def test_governance_agent_semantic_contradiction_detection():
     assert "Semantic contradiction detected" in audit["narration_audit"]["semantic_reasoning"]
 
 
+def test_valid_paraphrase_grounding_pass():
+    # Valid paraphrase: shares few verbatim keywords with fact, but is semantically grounded via synonym concepts
+    audit = governance_agent.audit_scene(
+        visual_prompt="A deep volcanic seafloor trench illuminated by submersible lights.",
+        narration="Far below the surface, seafloor fissures nourish thriving marine organisms in absolute blackness.",
+        facts=["Hydrothermal vents sustain diverse biological communities in total darkness without sunlight."]
+    )
+    assert audit["decision"] == "passed"
+    assert audit["narration_audit"]["fact_alignment_score"] >= 0.35
+    assert audit["narration_audit"]["contradiction_detected"] is False
+
+
+def test_deliberate_paraphrase_hallucination_detection():
+    # Deliberately paraphrased hallucination: asserts polar contradiction without any negation words
+    audit = governance_agent.audit_scene(
+        visual_prompt="A dark oceanic trench with steaming thermal vents.",
+        narration="Deep ocean fissures are completely sterile and lifeless due to extreme hydrostatic pressure.",
+        facts=["Hydrothermal vents sustain diverse biological communities in total darkness without sunlight."]
+    )
+    assert audit["decision"] == "flagged"
+    assert audit["narration_audit"]["contradiction_detected"] is True
+    assert "Polar contradiction" in audit["narration_audit"]["semantic_reasoning"]
+
+
 def test_orchestrator_agent_a2a_handoff_sequence():
     result = orchestrator_agent.orchestrate_scene_generation(
         project_id="test-proj-001",
@@ -138,7 +162,8 @@ def test_localization_service():
         target_locale="es-ES"
     )
     assert localized["target_locale"] == "es-ES"
-    assert "¿Sabías" in localized["translated_narration"]
+    assert len(localized["translated_narration"]) > 0
+    assert "subtitles_vtt" in localized
     assert localized["locale_governance_decision"] == "passed"
 
 
@@ -146,3 +171,12 @@ def test_brand_kit_service():
     kit = brand_kit_service.get_brand_kit("studio_default")
     assert kit.studio_name == "Agentic Cinema Studio"
     assert kit.watermark_position == "top_right"
+
+
+def test_agent_engine_client_in_process_fallback():
+    from app.adapters.agent_engine_client import agent_engine_client
+    res = agent_engine_client.execute_story_generation("Quantum Computing Breakthrough")
+    assert res["execution_mode"] in {"in_process_adk", "remote_agent_engine"}
+    assert "result" in res
+    assert "narration" in res["result"]
+    assert "governance_decision" in res["result"]

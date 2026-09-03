@@ -2,8 +2,9 @@ from uuid import UUID, uuid4
 import hashlib
 import json
 from datetime import datetime, timezone
+from typing import Dict, Any, List, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, BackgroundTasks, Response
 import time
 
 from app.schemas.health import HealthResponse, ReadinessResponse
@@ -430,6 +431,106 @@ def get_project_compliance_certificate(project_id: UUID):
         return certificate
     except ProjectNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Project not found") from exc
+
+
+@router.get(
+    "/api/projects/{project_id}/compliance-certificate/download",
+    tags=["governance"],
+)
+def download_project_compliance_certificate(project_id: UUID):
+    """Downloads the signed Compliance Certificate as a formatted JSON document."""
+    cert = get_project_compliance_certificate(project_id)
+    content = json.dumps(cert, indent=2)
+    return Response(
+        content=content,
+        media_type="application/json",
+        headers={"Content-Disposition": f"attachment; filename=compliance-certificate-{project_id}.json"}
+    )
+
+
+@router.post(
+    "/api/governance/verify-certificate",
+    tags=["governance"],
+)
+def verify_certificate_authenticity(cert: Dict[str, Any]):
+    """Verifies the HMAC-SHA256 signature of any submitted Compliance Certificate."""
+    is_valid = compliance_certificate_service.verify_certificate(cert)
+    return {
+        "is_valid": is_valid,
+        "certificate_id": cert.get("certificate_id", "UNKNOWN"),
+        "verdict": "AUTHENTIC_VERIFIED" if is_valid else "TAMPER_DETECTED_INVALID",
+        "signature_algorithm": cert.get("signature_algorithm", "HMAC-SHA256"),
+        "verified_at": datetime.now(timezone.utc).isoformat()
+    }
+
+
+@router.get(
+    "/api/governance/policy-packs",
+    tags=["governance"],
+)
+def list_governance_policy_packs():
+    """Lists all available IBM watsonx governance policy packs and their risk thresholds."""
+    from app.services.policy_pack_service import policy_pack_service
+    return [p.model_dump() for p in policy_pack_service.list_policy_packs()]
+
+
+@router.post(
+    "/api/governance/policy-packs",
+    tags=["governance"],
+)
+def create_governance_policy_pack(pack: Dict[str, Any]):
+    """Registers or updates a custom IBM watsonx governance policy pack."""
+    from app.services.policy_pack_service import policy_pack_service, GovernancePolicyPack
+    model = GovernancePolicyPack(**pack)
+    return policy_pack_service.create_policy_pack(model).model_dump()
+
+
+@router.post(
+    "/api/governance/advisor",
+    tags=["governance"],
+)
+def governance_advisory_check(payload: Dict[str, Any]):
+    """Provides soft real-time inline safety suggestions for draft prompts before submission."""
+    prompt_text = payload.get("prompt_text", "")
+    policy_pack = payload.get("policy_pack", "general_audience")
+    audit = ibm_governance.audit_prompt(prompt_text, policy_pack=policy_pack)
+    advisories = []
+    if audit["risk_score"] > 0.10:
+        advisories.append("Risk score approaching policy ceiling; review tone and intensity.")
+    if audit.get("policy_checks", {}).get("copyright_risk") != "negligible":
+        advisories.append("Potential trademark or copyright reference detected; use generic equivalents.")
+    return {
+        "status": "advisory",
+        "decision": audit["decision"],
+        "risk_score": audit["risk_score"],
+        "policy_pack": policy_pack,
+        "advisory_warnings": advisories,
+        "is_safe_to_submit": audit["decision"] == "passed"
+    }
+
+
+@router.get(
+    "/api/telemetry/budget-status/{project_id}",
+    tags=["telemetry"],
+)
+def get_project_budget_status(project_id: UUID):
+    """Returns token consumption, budget ceiling, and remaining headroom for FinOps monitoring."""
+    try:
+        project = project_service.repository.get(project_id)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+    budget = getattr(project.input, "token_budget", 50000)
+    consumed = telemetry.get_project_token_usage(str(project_id))
+    headroom = max(0, budget - consumed)
+    pct = round((consumed / max(1, budget)) * 100, 1)
+    return {
+        "project_id": str(project_id),
+        "token_budget": budget,
+        "tokens_consumed": consumed,
+        "budget_headroom": headroom,
+        "percent_used": pct,
+        "cost_ceiling_exceeded": consumed > budget
+    }
 
 
 @router.get(

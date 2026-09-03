@@ -150,3 +150,88 @@ def test_cost_ceiling_enforcement_halts_production():
     assert prod_res.status_code == 429
     assert "Cost ceiling exceeded" in prod_res.json()["detail"]
 
+
+def test_policy_packs_api_list_and_create():
+    list_res = client.get("/api/governance/policy-packs")
+    assert list_res.status_code == 200
+    packs = list_res.json()
+    assert len(packs) >= 3
+    pack_ids = [p["id"] for p in packs]
+    assert "general_audience" in pack_ids
+    assert "kids_family" in pack_ids
+
+    # Create custom policy pack
+    create_res = client.post(
+        "/api/governance/policy-packs",
+        json={
+            "id": "custom_enterprise_strict",
+            "name": "Custom Enterprise Strict",
+            "description": "Zero tolerance for competitor trademarks.",
+            "max_risk_score_allowed": 0.08,
+            "allow_mild_action": False,
+            "copyright_strictness": "strict"
+        }
+    )
+    assert create_res.status_code == 200
+    assert create_res.json()["id"] == "custom_enterprise_strict"
+
+
+def test_governance_advisor_mode():
+    # Advisory on safe text
+    safe_res = client.post(
+        "/api/governance/advisor",
+        json={"prompt_text": "Bioluminescent creatures glowing gently in the dark ocean.", "policy_pack": "general_audience"}
+    )
+    assert safe_res.status_code == 200
+    assert safe_res.json()["decision"] == "passed"
+    assert safe_res.json()["is_safe_to_submit"] is True
+
+    # Advisory on trademark/sensitive text
+    risky_res = client.post(
+        "/api/governance/advisor",
+        json={"prompt_text": "Mickey Mouse trademark_infringement with weapons.", "policy_pack": "kids_family"}
+    )
+    assert risky_res.status_code == 200
+    assert risky_res.json()["decision"] == "flagged"
+    assert risky_res.json()["is_safe_to_submit"] is False
+
+
+def test_tamper_evident_certificate_verification():
+    # Create project and fetch real signed certificate
+    created = client.post("/api/projects", json={"topic": "Bioluminescence 2026", "duration_seconds": 10})
+    p_id = created.json()["id"]
+    client.post(f"/api/projects/{p_id}/generate")
+
+    cert = client.get(f"/api/projects/{p_id}/compliance-certificate").json()
+
+    # 1. Authentic certificate must pass verification
+    verify_res = client.post("/api/governance/verify-certificate", json=cert)
+    assert verify_res.status_code == 200
+    assert verify_res.json()["is_valid"] is True
+    assert verify_res.json()["verdict"] == "AUTHENTIC_VERIFIED"
+
+    # 2. Tampered certificate (modified topic or payload) must fail
+    tampered_cert = dict(cert)
+    tampered_cert["topic"] = "TAMPERED_INJECTED_TOPIC"
+    tampered_res = client.post("/api/governance/verify-certificate", json=tampered_cert)
+    assert tampered_res.status_code == 200
+    # Because signature hash was computed over the canonical payload, if canonical_payload is modified or given_signature doesn't match:
+    tampered_cert["canonical_payload"] = "cert:tampered:tampered:1:timestamp"
+    tampered_res2 = client.post("/api/governance/verify-certificate", json=tampered_cert)
+    assert tampered_res2.json()["is_valid"] is False
+    assert tampered_res2.json()["verdict"] == "TAMPER_DETECTED_INVALID"
+
+
+def test_budget_status_endpoint():
+    created = client.post("/api/projects", json={"topic": "Deep Space Physics", "duration_seconds": 10, "token_budget": 25000})
+    p_id = created.json()["id"]
+
+    res = client.get(f"/api/telemetry/budget-status/{p_id}")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["token_budget"] == 25000
+    assert data["tokens_consumed"] >= 0
+    assert data["budget_headroom"] <= 25000
+    assert data["cost_ceiling_exceeded"] is False
+
+

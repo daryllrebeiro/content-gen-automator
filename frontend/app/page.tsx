@@ -33,6 +33,10 @@ import {
 import StatusTracker from "../components/StatusTracker";
 import PartnerEcosystemBar from "../components/PartnerEcosystemBar";
 import GovernanceAuditPanel from "../components/GovernanceAuditPanel";
+import FinOpsBudgetMonitor from "../components/FinOpsBudgetMonitor";
+import GovernanceAdvisorBadge from "../components/GovernanceAdvisorBadge";
+import PolicyPackManagerModal from "../components/PolicyPackManagerModal";
+import CertificateVerifierModal from "../components/CertificateVerifierModal";
 
 // ── Constants & Helpers ──────────────────────────────────────────────────────
 
@@ -138,6 +142,9 @@ export default function HomePage() {
   const [openWhy, setOpenWhy] = useState<number | null>(null);
   const [openTrace, setOpenTrace] = useState<number | null>(null);
   const [policyPack, setPolicyPack] = useState("general_audience");
+  const [showPolicyModal, setShowPolicyModal] = useState(false);
+  const [showVerifierModal, setShowVerifierModal] = useState(false);
+  const [activeCertificate, setActiveCertificate] = useState<any>(null);
   const [rejectComment, setRejectComment] = useState<Record<number, string>>({});
   const [activeStage, setActiveStage] = useState(STAGES.PROMPTS);
 
@@ -581,6 +588,7 @@ export default function HomePage() {
           <span className="status">MVP · AUTOMATION ENGINE</span>
         </header>
         <PartnerEcosystemBar />
+        <FinOpsBudgetMonitor />
         <section className="hero">
           <p className="eyebrow">PHASE 8 PUBLISHING AUTOMATION</p>
           <h1>Stateful Creative Pipeline.</h1>
@@ -701,6 +709,7 @@ export default function HomePage() {
               onChange={(e) => setTopic(e.target.value)}
               placeholder="Example: The history of tea and how it conquered the world"
             />
+            <GovernanceAdvisorBadge text={topic} policyPack={policyPack} />
           </label>
           <label>
             Key Fact Inputs <span className="hint">one fact per line</span>
@@ -772,7 +781,25 @@ export default function HomePage() {
 
           <div style={{ margin: "14px 0" }}>
             <label>
-              🛡️ IBM watsonx Policy Pack & Brand Safety Standard
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                <span>🛡️ IBM watsonx Policy Pack & Brand Safety Standard</span>
+                <button
+                  type="button"
+                  onClick={() => setShowPolicyModal(true)}
+                  style={{
+                    fontSize: "11px",
+                    padding: "3px 8px",
+                    background: "rgba(168, 85, 247, 0.15)",
+                    border: "1px solid rgba(168, 85, 247, 0.4)",
+                    color: "#c084fc",
+                    borderRadius: "5px",
+                    cursor: "pointer",
+                    fontWeight: 600
+                  }}
+                >
+                  ⚙️ Manage Policy Packs
+                </button>
+              </div>
               <select
                 value={policyPack}
                 onChange={(e) => setPolicyPack(e.target.value)}
@@ -803,6 +830,11 @@ export default function HomePage() {
             {busy ? "Initializing Pipeline..." : "Create Project →"}
           </button>
         </form>
+        <PolicyPackManagerModal
+          isOpen={showPolicyModal}
+          onClose={() => setShowPolicyModal(false)}
+          onSelectPack={(id) => setPolicyPack(id)}
+        />
       </main>
     );
   }
@@ -840,6 +872,7 @@ export default function HomePage() {
 
       {/* 5-Partner Hackathon Ecosystem Bar */}
       <PartnerEcosystemBar />
+      <FinOpsBudgetMonitor projectId={String(project.id)} />
 
       {/* Visual Pipeline Tracker */}
       <StatusTracker status={project.status} autoPilot={autoPilot} />
@@ -1308,9 +1341,33 @@ export default function HomePage() {
             </div>
 
             {/* Validation Check */}
-            <div style={{ marginTop: "20px" }}>
-              <button className="secondary" onClick={downloadExportMarkdown} style={{ marginRight: "10px" }}>
+            <div style={{ marginTop: "20px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
+              <button className="secondary" onClick={downloadExportMarkdown}>
                 Download Markdown Brief ↓
+              </button>
+              <button
+                className="secondary"
+                type="button"
+                onClick={() => window.open(`/api/projects/${project.id}/compliance-certificate/download`, "_blank")}
+                style={{ borderColor: "rgba(16, 185, 129, 0.4)", color: "#10b981" }}
+              >
+                📥 Download Compliance Certificate (JSON)
+              </button>
+              <button
+                className="secondary"
+                type="button"
+                onClick={async () => {
+                  try {
+                    const res = await fetch(`/api/projects/${project.id}/compliance-certificate`);
+                    if (res.ok) {
+                      setActiveCertificate(await res.json());
+                      setShowVerifierModal(true);
+                    }
+                  } catch (e) {}
+                }}
+                style={{ borderColor: "rgba(139, 92, 246, 0.4)", color: "#c084fc" }}
+              >
+                🔐 Verify HMAC Signature
               </button>
             </div>
 
@@ -1447,6 +1504,16 @@ export default function HomePage() {
           </div>
         </section>
       )}
+      <PolicyPackManagerModal
+        isOpen={showPolicyModal}
+        onClose={() => setShowPolicyModal(false)}
+        onSelectPack={(id) => setPolicyPack(id)}
+      />
+      <CertificateVerifierModal
+        isOpen={showVerifierModal}
+        onClose={() => setShowVerifierModal(false)}
+        certificate={activeCertificate}
+      />
     </main>
   );
 }
