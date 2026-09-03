@@ -233,7 +233,7 @@ def run_gate_suite(gcp_url: str, replit_url: str, video_url: str) -> int:
         readiness_score = 40.0
         cap_status = "CAPPED AT 40.0 (Cloud Run deployment not yet verified)"
 
-    passed_count = sum(1 for _, ok, _ in results)
+    passed_count = sum(1 for _, ok, _ in results if ok)
     print(f"\nTOTAL GATES EVALUATED    : {passed_count} / {len(gates)} passing")
     print(f"FINAL READINESS SCORE    : {readiness_score:.1f} / 100.0 ({cap_status})")
     print("=" * 96)
