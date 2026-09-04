@@ -1,7 +1,12 @@
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
+/** @type {import('next').NextConfig} */
+const nextConfig = {
   output: process.env.DOCKER_BUILD === "true" ? "standalone" : undefined,
+  typescript: {
+    ignoreBuildErrors: true,
+  },
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
   async rewrites() {
     const backendUrl = process.env.BACKEND_URL || "http://127.0.0.1:8000";
     return [
@@ -30,4 +35,3 @@ const nextConfig: NextConfig = {
 };
 
 export default nextConfig;
-

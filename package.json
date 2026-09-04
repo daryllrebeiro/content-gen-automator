@@ -4,7 +4,7 @@
   "private": true,
   "description": "Agentic Cinema: ContentGenAutomator Studio Core",
   "scripts": {
-    "build": "python3 -m pip install --no-cache-dir -r backend/requirements.txt && npm --prefix frontend install && npm --prefix frontend run build",
+    "build": "bash scripts/replit_build.sh",
     "dev": "bash scripts/replit_start.sh",
     "start": "bash scripts/replit_start.sh",
     "install:frontend": "npm install --prefix frontend",
