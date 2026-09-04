@@ -58,15 +58,19 @@ def check_gate_2_zero_secrets() -> tuple[bool, str]:
     return True, "Secret scanner verified 0 committed secrets."
 
 
-def check_gate_3_tests_and_invariants() -> tuple[bool, str]:
+def check_gate_3_tests_and_invariants() -> tuple[bool, str, str]:
     """Gate 3: Comprehensive automated test suite passing."""
     backend_dir = ROOT_DIR / "backend"
     res = subprocess.run([sys.executable, "-m", "pytest", "-q"], capture_output=True, text=True, cwd=str(backend_dir))
     if res.returncode != 0:
-        return False, f"pytest suite failed: {res.stdout.strip()[-300:]}"
+        return False, f"pytest suite failed: {res.stdout.strip()[-300:]}", "Gate 3: Automated Test Suite"
     lines = [l for l in res.stdout.strip().splitlines() if "passed" in l]
     summary = lines[-1] if lines else "All tests passed"
-    return True, f"Automated test suite green: {summary}"
+    import re
+    match = re.search(r"(\d+)\s+passed", summary)
+    count_str = f" ({match.group(1)})" if match else ""
+    gate_name = f"Gate 3: Automated Test Suite{count_str}"
+    return True, f"Automated test suite green: {summary}", gate_name
 
 
 def check_gate_4_adk_architecture() -> tuple[bool, str]:
@@ -227,7 +231,7 @@ def run_gate_suite(gcp_url: str, replit_url: str, video_url: str) -> int:
     gates = [
         ("Gate 1: License & Repo Integrity", lambda: check_gate_1_license_and_repo()),
         ("Gate 2: Zero Committed Secrets", lambda: check_gate_2_zero_secrets()),
-        ("Gate 3: Automated Test Suite (95)", lambda: check_gate_3_tests_and_invariants()),
+        ("Gate 3: Automated Test Suite", lambda: check_gate_3_tests_and_invariants()),
         ("Gate 4: Official ADK Primitives", lambda: check_gate_4_adk_architecture()),
         ("Gate 5: IBM watsonx Track Gate", lambda: check_gate_5_ibm_watsonx_track()),
         ("Gate 6A: Hosted Google Cloud Run URL", lambda: check_http_endpoint(gcp_url, "Cloud Run")[:2]),
@@ -238,7 +242,12 @@ def run_gate_suite(gcp_url: str, replit_url: str, video_url: str) -> int:
     results = []
     for name, fn in gates:
         try:
-            ok, msg = fn()
+            res = fn()
+            if len(res) == 3:
+                ok, msg, dynamic_name = res
+                name = dynamic_name
+            else:
+                ok, msg = res
         except Exception as exc:
             ok, msg = False, f"Unexpected error: {exc}"
         results.append((name, ok, msg))
