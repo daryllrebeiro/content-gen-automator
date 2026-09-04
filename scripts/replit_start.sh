@@ -62,8 +62,13 @@ else
     BACKEND_PORT="${BACKEND_PORT:-8001}"
   else
     BACKEND_PORT="${BACKEND_PORT:-8000}"
-  fi
   export BACKEND_URL="http://127.0.0.1:${BACKEND_PORT}"
+
+  # Clean up any lingering processes on the target ports
+  if command -v fuser >/dev/null 2>&1; then
+    fuser -k "${FRONTEND_PORT}/tcp" 2>/dev/null || true
+    fuser -k "${BACKEND_PORT}/tcp" 2>/dev/null || true
+  fi
 
   # 1. Start FastAPI backend in background
   echo "🚀 Launching FastAPI Backend on $HOST:$BACKEND_PORT..."
