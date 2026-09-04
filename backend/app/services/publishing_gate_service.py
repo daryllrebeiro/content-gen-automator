@@ -156,10 +156,11 @@ class PublishingGateService:
 
         # Gate 8: multi-platform export integrity
         target_platforms = getattr(project.input, "target_platforms", [])
-        if target_platforms and hasattr(project, "platform_exports") and project.platform_exports:
+        platform_exports = getattr(project, "platform_exports", {}) or {}
+        if len(target_platforms) > 1 or platform_exports:
             for plat in target_platforms:
                 plat_key = plat.value if hasattr(plat, "value") else str(plat)
-                export_rec = project.platform_exports.get(plat_key)
+                export_rec = platform_exports.get(plat_key)
                 if not export_rec or export_rec.export_status != "COMPLETED":
                     failed.append(f"Platform target '{plat_key}' is missing completed media export.")
 

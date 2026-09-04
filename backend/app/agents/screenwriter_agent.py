@@ -23,6 +23,7 @@ class ScreenwriterAgent(LlmAgent):
         """
         from app.services.model_tier_service import ModelTierService
         spec = ModelTierService.get_tier_spec(model_tier)
+        self.model = spec.screenwriter_model
 
         max_words = int(target_seconds * 2.6)
         min_words = int(target_seconds * 1.8)
@@ -48,6 +49,17 @@ class ScreenwriterAgent(LlmAgent):
             "estimated_cost_usd": spec.estimated_cost_per_draft,
             "estimated_latency_ms": spec.estimated_latency_ms,
         }
+
+
+def create_screenwriter_agent(model_tier: str = "flagship") -> ScreenwriterAgent:
+    from app.services.model_tier_service import ModelTierService
+    spec = ModelTierService.get_tier_spec(model_tier)
+    return ScreenwriterAgent(
+        name=f"screenwriter_agent_{spec.id}",
+        model=spec.screenwriter_model,
+        instruction="Draft high-retention cinematic voiceover narration within strict duration word budgets.",
+        tools=[draft_narration_tool]
+    )
 
 
 screenwriter_agent = ScreenwriterAgent(

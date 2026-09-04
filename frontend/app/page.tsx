@@ -871,8 +871,14 @@ export default function HomePage() {
                 onChange={(e) => setModelTier(e.target.value)}
                 style={{ width: "100%", padding: "10px", borderRadius: "8px", background: "#0c0c13", border: "1px solid var(--line)", color: "var(--ink)" }}
               >
-                <option value="fast_draft">⚡ Fast Draft (Gemma Tier) — ~$0.0002/scene, ~950ms</option>
-                <option value="flagship">👑 Flagship (Gemini 2.5 Flash) — ~$0.0010/scene, ~2400ms</option>
+                {(modelTiersCatalog.length > 0 ? modelTiersCatalog : [
+                  { id: "fast_draft", display_name: "⚡ Fast Draft (Cost-Optimized Gemma)", estimated_cost_per_draft: "$0.0002", estimated_latency_ms: "950ms", metric_type: "Estimated Baseline Model Rate" },
+                  { id: "flagship", display_name: "👑 Flagship (Gemini 2.5 Flash Reasoning)", estimated_cost_per_draft: "$0.0010", estimated_latency_ms: "2400ms", metric_type: "Estimated Baseline Model Rate" },
+                ]).map((tier: any) => (
+                  <option key={tier.id} value={tier.id}>
+                    {tier.display_name} — ~{tier.estimated_cost_per_draft}/draft, ~{tier.estimated_latency_ms} ({tier.metric_type || "Estimated Baseline"})
+                  </option>
+                ))}
               </select>
             </label>
           </div>
@@ -1645,6 +1651,35 @@ export default function HomePage() {
                             {exp.publish_metadata.hashtags?.map((tag: string) => (
                               <span key={tag} style={{ color: "#38bdf8", background: "rgba(56, 189, 248, 0.1)", padding: "2px 6px", borderRadius: "4px" }}>{tag}</span>
                             ))}
+                          </div>
+                          <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
+                            <a
+                              href={`/api/projects/${project?.id}/platform-exports/${platKey}/download/manifest.json`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="button button-secondary"
+                              style={{ fontSize: "11px", padding: "4px 8px", textDecoration: "none" }}
+                            >
+                              📄 Manifest
+                            </a>
+                            <a
+                              href={`/api/projects/${project?.id}/platform-exports/${platKey}/download/captions.vtt`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="button button-secondary"
+                              style={{ fontSize: "11px", padding: "4px 8px", textDecoration: "none" }}
+                            >
+                              💬 WebVTT
+                            </a>
+                            <a
+                              href={`/api/projects/${project?.id}/platform-exports/${platKey}/download/post_copy.txt`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="button button-secondary"
+                              style={{ fontSize: "11px", padding: "4px 8px", textDecoration: "none" }}
+                            >
+                              📝 Copy
+                            </a>
                           </div>
                         </div>
                       )}

@@ -192,7 +192,16 @@ class FFmpegAssemblyService:
                     with open(out_path, "w", encoding="utf-8") as f:
                         f.write(f"EXPORT_YOUTUBE_9_16:{project_id}:STUDIO_{kit.studio_name}")
                 else:
-                    shutil.copyfile(source, out_path)
+                    # YouTube Shorts: 9:16 standard vertical
+                    cmd_yt = [
+                        self.ffmpeg_path,
+                        "-y",
+                        "-i", source,
+                        "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2",
+                        "-c:a", "copy",
+                        out_path
+                    ]
+                    subprocess.run(cmd_yt, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
             elif plat_enum == Platform.TIKTOK:
                 out_path = f"app/static/output/{project_id}_tiktok_9_16.mp4"
@@ -201,7 +210,16 @@ class FFmpegAssemblyService:
                     with open(out_path, "w", encoding="utf-8") as f:
                         f.write(f"EXPORT_TIKTOK_9_16:{project_id}:HIGH_ENERGY:STUDIO_{kit.studio_name}")
                 else:
-                    shutil.copyfile(source, out_path)
+                    # TikTok: 9:16 high-energy grading filter
+                    cmd_tt = [
+                        self.ffmpeg_path,
+                        "-y",
+                        "-i", source,
+                        "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,eq=saturation=1.12:contrast=1.08",
+                        "-c:a", "copy",
+                        out_path
+                    ]
+                    subprocess.run(cmd_tt, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
             elif plat_enum == Platform.INSTAGRAM_REELS:
                 out_path = f"app/static/output/{project_id}_instagram_reels_9_16.mp4"
@@ -210,7 +228,16 @@ class FFmpegAssemblyService:
                     with open(out_path, "w", encoding="utf-8") as f:
                         f.write(f"EXPORT_INSTAGRAM_REELS_9_16:{project_id}:AESTHETIC:STUDIO_{kit.studio_name}")
                 else:
-                    shutil.copyfile(source, out_path)
+                    # Instagram Reels: 9:16 aesthetic grading filter
+                    cmd_ig = [
+                        self.ffmpeg_path,
+                        "-y",
+                        "-i", source,
+                        "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,eq=saturation=1.04:gamma=1.06",
+                        "-c:a", "copy",
+                        out_path
+                    ]
+                    subprocess.run(cmd_ig, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             else:
                 out_path = f"app/static/output/{project_id}_{plat_enum.value.lower()}.mp4"
                 aspect = "9:16"

@@ -62,3 +62,22 @@ def test_orchestrator_routes_model_tier():
     assert "OrchestratorAgent" in trace["orchestrator"]
     assert trace["script_metadata"]["model"] == "gemma-2-9b-it"
     assert trace["script_metadata"]["model_tier"] == "fast_draft"
+
+
+def test_screenwriter_agent_construction_and_cinematographer_governance_invariance():
+    from app.agents.screenwriter_agent import create_screenwriter_agent
+    from app.agents.cinematographer_agent import cinematographer_agent
+    from app.agents.governance_agent import governance_agent
+
+    # 1. Fast draft construction
+    fast_agent = create_screenwriter_agent("fast_draft")
+    assert fast_agent.model == "gemma-2-9b-it"
+
+    # 2. Flagship construction
+    flagship_agent = create_screenwriter_agent("flagship")
+    assert flagship_agent.model == "gemini-2.5-flash"
+
+    # 3. Cinematographer and Governance Specialist models are completely unaffected by tier selection
+    assert cinematographer_agent.model == "gemini-2.5-flash"
+    assert governance_agent.model == "gemini-2.5-flash"
+

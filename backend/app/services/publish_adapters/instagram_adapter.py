@@ -9,7 +9,8 @@ class InstagramPublishAdapter(BasePublishAdapter):
         self.access_token = os.environ.get("INSTAGRAM_ACCESS_TOKEN")
 
     def publish(self, project: Project, asset_path: str) -> PublishResult:
-        project_id = str(project.id)
+        from uuid import UUID
+        project_id = str(UUID(str(project.id)))
         if self.access_token:
             return PublishResult(
                 platform=Platform.INSTAGRAM_REELS,
@@ -45,8 +46,9 @@ class InstagramPublishAdapter(BasePublishAdapter):
             "spec": "9:16 Vertical 1080x1920, Aesthetic minimal styling",
             "caption": caption_text,
             "hashtags": hashtags,
-            "video_file": target_video,
-            "subtitles_file": vtt_path,
+            "video_file": os.path.basename(target_video),
+            "subtitles_file": os.path.basename(vtt_path),
+            "post_copy_file": os.path.basename(txt_path),
             "export_mode": "manual_ready"
         }
         with open(f"{package_dir}/manifest.json", "w", encoding="utf-8") as f:

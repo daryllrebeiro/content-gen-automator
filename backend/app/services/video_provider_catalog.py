@@ -62,3 +62,10 @@ class VideoProviderCatalog:
                 disabled_reason=None if (kling_key and not kling_key.startswith("mock_")) else "Requires KLING_API_KEY in environment"
             ),
         ]
+
+    @staticmethod
+    def get_provider(provider_id: str) -> Optional[VideoProviderItem]:
+        for p in VideoProviderCatalog.list_providers():
+            if p.id == provider_id:
+                return p
+        return None

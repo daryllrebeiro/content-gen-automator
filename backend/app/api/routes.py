@@ -1,4 +1,5 @@
 from uuid import UUID, uuid4
+import os
 import hashlib
 import json
 from datetime import datetime, timezone
@@ -104,7 +105,7 @@ def run_production_pipeline_async(project_id_str: str, job_id: str, scene_number
                 f.write(b"MOCK AUDIO DATA")
         
         video_url = f"/static/video/{project_id_str}_{scene_number}.mp4"
-        if project.input.video_provider in {"runway", "kling"}:
+        if project.input.video_provider in {"runway", "kling", "gemini_omni"}:
             from app.services.video_gen_service import RealVideoGenService
             video_service = RealVideoGenService()
             video_service.generate_clip(project_id_str, scene_number, prompt.text, project.input.video_provider)
@@ -1623,6 +1624,70 @@ def get_project_platform_exports(project_id: UUID):
         }
         for k, v in getattr(project, "platform_exports", {}).items()
     }
+
+
+@router.get("/api/projects/{project_id}/platform-exports/{platform}/download/{file_name}", tags=["publishing"])
+def download_platform_export_file(
+    project_id: UUID,
+    platform: str,
+    file_name: str,
+    authorization: Optional[str] = Header(default=None),
+    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
+):
+    import re
+    from fastapi.responses import FileResponse
+    # 1. Path traversal & filename sanitation checks
+    if any(sep in file_name for sep in ["..", "/", "\\", "%", "\x00"]) or not re.match(r"^[a-zA-Z0-9_.-]+$", file_name):
+        raise HTTPException(status_code=400, detail="Path traversal attempt blocked.")
+    
+    # 2. Strict file whitelist: only allow valid package files
+    allowed_files = {"manifest.json", "captions.vtt", "post_copy.txt"}
+    if not (file_name in allowed_files or file_name.endswith(".mp4")):
+        raise HTTPException(status_code=400, detail="Forbidden file access requested.")
+
+    # 3. Project existence verification
+    try:
+        project = project_service.repository.get(project_id)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+
+    # 4. Access Control: verify director credentials in production or when integration token configured
+    if settings.app_env == "production" or settings.integration_service_token:
+        expected_token = settings.integration_service_token
+        is_authed = False
+        if expected_token:
+            if authorization == f"Bearer {expected_token}" or x_api_key == expected_token:
+                is_authed = True
+        elif settings.app_env != "production":
+            is_authed = True
+
+        if not is_authed:
+            raise HTTPException(status_code=403, detail="Access denied: Valid Director authorization required to download export package.")
+
+    # 5. Resolve and verify filesystem path containment
+    plat_normalized = platform.lower().replace("platform.", "")
+    if "tiktok" in plat_normalized:
+        package_prefix = "tiktok"
+    elif "instagram" in plat_normalized or "reels" in plat_normalized:
+        package_prefix = "instagram"
+    elif "youtube" in plat_normalized or "shorts" in plat_normalized:
+        package_prefix = "youtube"
+    else:
+        package_prefix = plat_normalized
+
+    base_dir = os.path.abspath(f"app/static/exports/{package_prefix}_{project_id}")
+    target_file = os.path.abspath(os.path.join(base_dir, file_name))
+
+    try:
+        common = os.path.commonpath([base_dir, target_file])
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Path traversal attempt blocked.")
+
+    if common != base_dir or not os.path.exists(target_file):
+        raise HTTPException(status_code=404, detail="Requested export file not found.")
+
+    return FileResponse(target_file)
+
 
 
 
