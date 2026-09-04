@@ -995,7 +995,7 @@ export default function HomePage() {
       <PartnerEcosystemBar />
       <FinOpsBudgetMonitor projectId={String(project.id)} />
 
-      {/* Visual Pipeline Tracker */}
+      {/* Pipeline Step Tracker */}
       <StatusTracker status={project.status} autoPilot={autoPilot} />
 
       {/* IBM watsonx Governance Audit Panel */}
