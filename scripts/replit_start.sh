@@ -1,29 +1,55 @@
 #!/usr/bin/env bash
 set -e
 
-echo "🎬 Starting ContentGenAutomator Studio on Replit..."
+MODE="${1:-${SERVICE:-all}}"
+HOST="${HOST:-0.0.0.0}"
 
-# Install backend dependencies if needed
-echo "📦 Checking Python backend dependencies..."
-pip install -r backend/requirements.txt --quiet
+if [ "$MODE" = "backend" ]; then
+  PORT="${PORT:-8000}"
+  echo "🚀 [Replit Workflow: Backend] Launching FastAPI on $HOST:$PORT..."
+  pip install -r backend/requirements.txt --quiet
+  cd backend && exec uvicorn app.main:app --host "$HOST" --port "$PORT"
 
-# Install frontend dependencies if needed
-echo "🎨 Checking Next.js frontend dependencies..."
-cd frontend
-if [ ! -d "node_modules" ]; then
-  npm install
+elif [ "$MODE" = "frontend" ]; then
+  PORT="${PORT:-3000}"
+  echo "✨ [Replit Workflow: Frontend] Launching Studio UI on $HOST:$PORT..."
+  cd frontend
+  if [ ! -d "node_modules" ]; then
+    npm install
+  fi
+  exec npm run dev -- -p "$PORT" -H "$HOST"
+
+else
+  echo "🎬 Starting ContentGenAutomator Studio (Multi-Process Mode)..."
+
+  # 1. Install dependencies
+  echo "📦 Checking Python backend dependencies..."
+  pip install -r backend/requirements.txt --quiet
+
+  echo "🎨 Checking frontend dependencies..."
+  cd frontend
+  if [ ! -d "node_modules" ]; then
+    npm install
+  fi
+  cd ..
+
+  # 2. Dynamic Port Assignment
+  FRONTEND_PORT="${PORT:-${FRONTEND_PORT:-3000}}"
+  BACKEND_PORT="${BACKEND_PORT:-8000}"
+
+  # 3. Start FastAPI backend
+  echo "🚀 Launching FastAPI Backend on $HOST:$BACKEND_PORT..."
+  cd backend && uvicorn app.main:app --host "$HOST" --port "$BACKEND_PORT" &
+  BACKEND_PID=$!
+  cd ..
+
+  # 4. Start Frontend
+  echo "✨ Launching Studio UI on $HOST:$FRONTEND_PORT..."
+  cd frontend && npm run dev -- -p "$FRONTEND_PORT" -H "$HOST" &
+  FRONTEND_PID=$!
+  cd ..
+
+  # Cleanup on exit
+  trap "kill $BACKEND_PID $FRONTEND_PID 2>/dev/null || true" EXIT INT TERM
+  wait $FRONTEND_PID
 fi
-cd ..
-
-# Start FastAPI backend in background
-echo "🚀 Launching FastAPI Backend on port 8000..."
-cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8000 &
-BACKEND_PID=$!
-cd ..
-
-# Start Next.js frontend
-echo "✨ Launching Next.js Studio UI on port 3000..."
-cd frontend && npm run dev -- -p 3000
-
-# Cleanup on exit
-trap "kill $BACKEND_PID" EXIT

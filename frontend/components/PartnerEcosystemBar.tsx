@@ -20,7 +20,7 @@ export default function PartnerEcosystemBar() {
   useEffect(() => {
     const fetchStatus = async () => {
       try {
-        const res = await fetch("http://localhost:8000/api/partners/status");
+        const res = await fetch("/api/partners/status");
         if (res.ok) {
           const json = await res.json();
           setData(json);

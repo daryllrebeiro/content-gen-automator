@@ -9,16 +9,9 @@ channel = "stable-24_05"
 run = ["bash", "-c", "cd backend && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
 deploymentTarget = "cloudrun"
 
-[[ports]]
-localPort = 3000
-externalPort = 80
-
-[[ports]]
-localPort = 8000
-externalPort = 8000
-
 [env]
 APP_ENV = "development"
 PROJECT_REPOSITORY = "memory"
 LLM_PROVIDER = "gemini"
-NEXT_PUBLIC_API_BASE_URL = "http://localhost:8000"
+NEXT_PUBLIC_API_BASE_URL = ""
+

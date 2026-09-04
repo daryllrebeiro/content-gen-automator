@@ -25,7 +25,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.cors_origins),
-    allow_origin_regex=r"https://.*\.replit\.(app|dev)",
+    allow_origin_regex=r"(https://.*\.replit\.(app|dev)|https?://(localhost|127\.0\.0\.1)(:\d+)?|https?://0\.0\.0\.0(:\d+)?)",
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "Idempotency-Key", "X-Request-ID"],
