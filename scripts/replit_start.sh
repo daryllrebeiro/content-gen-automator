@@ -17,7 +17,15 @@ elif [ "$MODE" = "frontend" ]; then
   if [ ! -d "node_modules" ]; then
     npm install
   fi
-  exec npm run dev -- -p "$PORT" -H "$HOST"
+  if [ "$NODE_ENV" = "production" ] || [ "$APP_ENV" = "production" ]; then
+    if [ ! -d ".next" ]; then
+      echo "🏗️ Building Next.js for production..."
+      npm run build
+    fi
+    exec npm run start -- -p "$PORT" -H "$HOST"
+  else
+    exec npm run dev -- -p "$PORT" -H "$HOST"
+  fi
 
 else
   echo "🎬 Starting ContentGenAutomator Studio (Multi-Process Mode)..."
@@ -45,7 +53,16 @@ else
 
   # 4. Start Frontend
   echo "✨ Launching Studio UI on $HOST:$FRONTEND_PORT..."
-  cd frontend && npm run dev -- -p "$FRONTEND_PORT" -H "$HOST" &
+  cd frontend
+  if [ "$NODE_ENV" = "production" ] || [ "$APP_ENV" = "production" ]; then
+    if [ ! -d ".next" ]; then
+      echo "🏗️ Building Next.js for production..."
+      npm run build
+    fi
+    npm run start -- -p "$FRONTEND_PORT" -H "$HOST" &
+  else
+    npm run dev -- -p "$FRONTEND_PORT" -H "$HOST" &
+  fi
   FRONTEND_PID=$!
   cd ..
 

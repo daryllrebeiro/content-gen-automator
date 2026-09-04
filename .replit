@@ -1,17 +1,32 @@
+modules = ["python-3.11", "nodejs-20"]
 run = "bash scripts/replit_start.sh"
 entrypoint = "backend/app/main.py"
-modules = ["python-3.11", "nodejs-20"]
 
 [nix]
 channel = "stable-24_05"
 
 [deployment]
-run = ["bash", "-c", "cd backend && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
 deploymentTarget = "cloudrun"
+build = ["bash", "-c", "pip install -r backend/requirements.txt && cd frontend && npm install && npm run build"]
+run = ["bash", "scripts/replit_start.sh"]
+
+[workflows]
+runButton = "Start Studio"
+
+[[workflows.workflow]]
+name = "Start Studio"
+mode = "parallel"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "bash scripts/start_backend.sh"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "bash scripts/start_frontend.sh"
 
 [env]
 APP_ENV = "development"
 PROJECT_REPOSITORY = "memory"
 LLM_PROVIDER = "gemini"
 NEXT_PUBLIC_API_BASE_URL = ""
-
