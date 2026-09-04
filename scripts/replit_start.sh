@@ -4,20 +4,43 @@ set -e
 MODE="${1:-${SERVICE:-all}}"
 HOST="${HOST:-0.0.0.0}"
 
+# Detect production deployment environment on Replit
+if [ -n "$REPL_ENVIRONMENT" ] && [ "$REPL_ENVIRONMENT" = "production" ]; then
+  export NODE_ENV="production"
+  export APP_ENV="production"
+fi
+if [ -n "$DEPLOYMENT_ID" ]; then
+  export NODE_ENV="production"
+  export APP_ENV="production"
+fi
+
+install_backend_if_needed() {
+  if ! python3 -c "import fastapi, uvicorn, pydantic, google.adk" 2>/dev/null; then
+    echo "📦 Checking/installing Python backend dependencies..."
+    python3 -m pip install --no-cache-dir -r backend/requirements.txt --quiet || \
+    python3 -m pip install --no-cache-dir --break-system-packages -r backend/requirements.txt --quiet
+  fi
+}
+
+install_frontend_if_needed() {
+  if [ ! -d "frontend/node_modules" ]; then
+    echo "🎨 Installing frontend dependencies..."
+    (cd frontend && npm install)
+  fi
+}
+
 if [ "$MODE" = "backend" ]; then
   PORT="${PORT:-8000}"
   echo "🚀 [Replit Workflow: Backend] Launching FastAPI on $HOST:$PORT..."
-  pip install -r backend/requirements.txt --quiet
-  cd backend && exec uvicorn app.main:app --host "$HOST" --port "$PORT"
+  install_backend_if_needed
+  cd backend && exec python3 -m uvicorn app.main:app --host "$HOST" --port "$PORT"
 
 elif [ "$MODE" = "frontend" ]; then
   PORT="${PORT:-3000}"
   echo "✨ [Replit Workflow: Frontend] Launching Studio UI on $HOST:$PORT..."
+  install_frontend_if_needed
   cd frontend
-  if [ ! -d "node_modules" ]; then
-    npm install
-  fi
-  if [ "$NODE_ENV" = "production" ] || [ "$APP_ENV" = "production" ]; then
+  if [ "$NODE_ENV" = "production" ] || [ "$APP_ENV" = "production" ] || [ -d ".next" ]; then
     if [ ! -d ".next" ]; then
       echo "🏗️ Building Next.js for production..."
       npm run build
@@ -30,31 +53,27 @@ elif [ "$MODE" = "frontend" ]; then
 else
   echo "🎬 Starting ContentGenAutomator Studio (Multi-Process Mode)..."
 
-  # 1. Install dependencies
-  echo "📦 Checking Python backend dependencies..."
-  pip install -r backend/requirements.txt --quiet
+  install_backend_if_needed
+  install_frontend_if_needed
 
-  echo "🎨 Checking frontend dependencies..."
-  cd frontend
-  if [ ! -d "node_modules" ]; then
-    npm install
+  # Dynamic Port Assignment & Port Collision Prevention
+  FRONTEND_PORT="${PORT:-3000}"
+  if [ "$FRONTEND_PORT" = "8000" ]; then
+    BACKEND_PORT="${BACKEND_PORT:-8001}"
+  else
+    BACKEND_PORT="${BACKEND_PORT:-8000}"
   fi
-  cd ..
+  export BACKEND_URL="http://127.0.0.1:${BACKEND_PORT}"
 
-  # 2. Dynamic Port Assignment
-  FRONTEND_PORT="${PORT:-${FRONTEND_PORT:-3000}}"
-  BACKEND_PORT="${BACKEND_PORT:-8000}"
-
-  # 3. Start FastAPI backend
+  # 1. Start FastAPI backend in background
   echo "🚀 Launching FastAPI Backend on $HOST:$BACKEND_PORT..."
-  cd backend && uvicorn app.main:app --host "$HOST" --port "$BACKEND_PORT" &
+  (cd backend && exec python3 -m uvicorn app.main:app --host "$HOST" --port "$BACKEND_PORT") &
   BACKEND_PID=$!
-  cd ..
 
-  # 4. Start Frontend
-  echo "✨ Launching Studio UI on $HOST:$FRONTEND_PORT..."
+  # 2. Start Frontend (listening on the public $PORT)
+  echo "✨ Launching Studio UI on $HOST:$FRONTEND_PORT (proxying /api to $BACKEND_URL)..."
   cd frontend
-  if [ "$NODE_ENV" = "production" ] || [ "$APP_ENV" = "production" ]; then
+  if [ "$NODE_ENV" = "production" ] || [ "$APP_ENV" = "production" ] || [ -d ".next" ]; then
     if [ ! -d ".next" ]; then
       echo "🏗️ Building Next.js for production..."
       npm run build
@@ -67,6 +86,6 @@ else
   cd ..
 
   # Cleanup on exit
-  trap "kill $BACKEND_PID $FRONTEND_PID 2>/dev/null || true" EXIT INT TERM
-  wait $FRONTEND_PID
+  trap "kill -TERM $BACKEND_PID $FRONTEND_PID 2>/dev/null || true" EXIT INT TERM
+  wait -n $BACKEND_PID $FRONTEND_PID || true
 fi
