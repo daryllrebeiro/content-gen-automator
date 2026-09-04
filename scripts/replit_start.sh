@@ -23,9 +23,9 @@ install_backend_if_needed() {
 }
 
 install_frontend_if_needed() {
-  if [ ! -d "frontend/node_modules" ]; then
-    echo "🎨 Installing frontend dependencies..."
-    (cd frontend && npm install)
+  if [ ! -d "frontend/node_modules" ] || [ ! -d "frontend/node_modules/next" ]; then
+    echo "🎨 Installing frontend dependencies using npm..."
+    (cd frontend && npm install --include=dev)
   fi
 }
 
