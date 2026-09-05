@@ -1,9 +1,11 @@
-from fastapi import FastAPI, Response, HTTPException
+from fastapi import FastAPI, Response, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import os
 import json
 from typing import Dict, Any, List
+
+from app.api.byok import ByokCredentials, get_byok_credentials
 
 from app.api.routes import router
 from app.config import settings
@@ -28,7 +30,17 @@ app.add_middleware(
     allow_origin_regex=r"(https://.*\.replit\.(app|dev)|https?://(localhost|127\.0\.0\.1)(:\d+)?|https?://0\.0\.0\.0(:\d+)?)",
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization", "Idempotency-Key", "X-Request-ID"],
+    allow_headers=[
+        "Content-Type",
+        "Authorization",
+        "Idempotency-Key",
+        "X-Request-ID",
+        "X-API-Key",
+        "X-Gemini-API-Key",
+        "X-Runway-API-Key",
+        "X-Kling-API-Key",
+        "X-ElevenLabs-API-Key",
+    ],
 )
 
 app.include_router(router)
@@ -144,10 +156,17 @@ def get_analytics_anomalies():
 # ── 6. Localization & Brand Kit ──────────────────────────────────────────────
 
 @app.post("/api/exports/{project_id}/locales/{locale}", tags=["localization"])
-def localize_project_export(project_id: str, locale: str, payload: dict):
+def localize_project_export(
+    project_id: str,
+    locale: str,
+    payload: dict,
+    byok: ByokCredentials = Depends(get_byok_credentials)
+):
+    from app.api.byok import resolve_gemini_key
     topic = payload.get("topic", "")
     narration_en = payload.get("narration_en", "")
-    return localization_service.localize_project(project_id, topic, narration_en, locale)
+    api_key = resolve_gemini_key(byok)
+    return localization_service.localize_project(project_id, topic, narration_en, locale, api_key=api_key)
 
 @app.get("/api/brand-kits/{studio_id}", tags=["brand_kit"])
 def get_studio_brand_kit(studio_id: str = "studio_default"):

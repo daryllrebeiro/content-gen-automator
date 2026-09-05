@@ -62,6 +62,15 @@ from app.adapters.clickhouse_analytics import clickhouse_analytics
 from app.adapters.ibm_governance import ibm_governance
 from app.agents.orchestrator_agent import orchestrator_agent
 from app.services.compliance_certificate_service import compliance_certificate_service
+from app.api.byok import (
+    ByokCredentials,
+    ByokVerifyRequest,
+    get_byok_credentials,
+    resolve_gemini_key,
+    resolve_video_provider_key,
+    verify_gemini_key,
+    is_byok_enforced,
+)
 
 
 router = APIRouter()
@@ -73,7 +82,13 @@ publishing_gate_service = PublishingGateService()
 youtube_metadata_validator = YouTubeMetadataValidator()
 
 
-def run_production_pipeline_async(project_id_str: str, job_id: str, scene_number: int):
+def run_production_pipeline_async(
+    project_id_str: str,
+    job_id: str,
+    scene_number: int,
+    tts_api_key: Optional[str] = None,
+    video_api_key: Optional[str] = None,
+):
     repo = project_service.repository
     project = repo.get(UUID(project_id_str))
     prompt = project.prompts.get(scene_number)
@@ -97,7 +112,7 @@ def run_production_pipeline_async(project_id_str: str, job_id: str, scene_number
         if project.input.tts_provider == "elevenlabs":
             from app.services.elevenlabs_service import ElevenLabsTTSService
             tts_service = ElevenLabsTTSService()
-            tts_service.synthesize(project_id_str, scene_number, prompt.narration)
+            tts_service.synthesize(project_id_str, scene_number, prompt.narration, api_key=tts_api_key)
         else:
             import os
             os.makedirs("app/static/audio", exist_ok=True)
@@ -108,7 +123,7 @@ def run_production_pipeline_async(project_id_str: str, job_id: str, scene_number
         if project.input.video_provider in {"runway", "kling", "gemini_omni"}:
             from app.services.video_gen_service import RealVideoGenService
             video_service = RealVideoGenService()
-            video_service.generate_clip(project_id_str, scene_number, prompt.text, project.input.video_provider)
+            video_service.generate_clip(project_id_str, scene_number, prompt.text, project.input.video_provider, api_key=video_api_key)
         else:
             import os
             os.makedirs("app/static/video", exist_ok=True)
@@ -342,12 +357,32 @@ def get_project(project_id: UUID) -> ProjectResponse:
     response_model=PromptResponse,
     tags=["prompts"],
 )
-def generate_first_prompt(project_id: UUID) -> PromptResponse:
+def generate_first_prompt(
+    project_id: UUID,
+    byok: ByokCredentials = Depends(get_byok_credentials)
+) -> PromptResponse:
     try:
         t0 = time.time()
         project = project_service.repository.get(project_id)
         current_scene_idx = len(project.prompts) + 1
-        
+        model_tier = getattr(project.input, "model_tier", "flagship")
+        gemini_key = resolve_gemini_key(byok)
+
+        # Enforce BYOK in production for real Gemini provider
+        if is_byok_enforced() and os.getenv("LLM_PROVIDER", "mock").lower() == "gemini" and not gemini_key:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "BYOK_KEY_REQUIRED",
+                    "provider": "gemini",
+                    "message": (
+                        "Generating content with Google Gemini requires your Gemini API key in Studio BYOK settings. "
+                        "Click '🔑 API Keys' in the top bar to configure your key, or run in Simulated Studio (Mock) mode."
+                    ),
+                    "action_url": "https://aistudio.google.com/apikey"
+                }
+            )
+
         # 1. Coordinate reasoning via ADK Multi-Agent Orchestrator
         agent_trace = orchestrator_agent.orchestrate_scene_generation(
             project_id=str(project_id),
@@ -356,11 +391,12 @@ def generate_first_prompt(project_id: UUID) -> PromptResponse:
             total_scenes=len(project.scenes),
             tone=project.input.tone or "cinematic",
             facts=project.input.facts or [],
-            model_tier=getattr(project.input, "model_tier", "flagship"),
+            model_tier=model_tier,
+            gemini_api_key=gemini_key,
         )
 
         # 2. Advance Domain FSM & Generate Prompt
-        prompt = project_service.generate_next(project_id)
+        prompt = project_service.generate_next(project_id, gemini_api_key=gemini_key)
         latency = time.time() - t0
         
         # 3. IBM watsonx Governance Compliance Gate (Enforced & Blocking)
@@ -400,8 +436,11 @@ def generate_first_prompt(project_id: UUID) -> PromptResponse:
     response_model=PromptResponse,
     tags=["prompts"],
 )
-def generate_next_prompt(project_id: UUID) -> PromptResponse:
-    return generate_first_prompt(project_id)
+def generate_next_prompt(
+    project_id: UUID,
+    byok: ByokCredentials = Depends(get_byok_credentials)
+) -> PromptResponse:
+    return generate_first_prompt(project_id, byok=byok)
 
 
 @router.post(
@@ -409,11 +448,28 @@ def generate_next_prompt(project_id: UUID) -> PromptResponse:
     response_model=PromptResponse,
     tags=["prompts"],
 )
-def regenerate_prompt(project_id: UUID, scene_number: int) -> PromptResponse:
+def regenerate_prompt(
+    project_id: UUID,
+    scene_number: int,
+    byok: ByokCredentials = Depends(get_byok_credentials)
+) -> PromptResponse:
     try:
         t0 = time.time()
         project = project_service.repository.get(project_id)
-        
+        model_tier = getattr(project.input, "model_tier", "flagship")
+        gemini_key = resolve_gemini_key(byok)
+
+        if is_byok_enforced() and os.getenv("LLM_PROVIDER", "mock").lower() == "gemini" and not gemini_key:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "BYOK_KEY_REQUIRED",
+                    "provider": "gemini",
+                    "message": "Regenerating content with Google Gemini requires your Gemini API key in Studio BYOK settings.",
+                    "action_url": "https://aistudio.google.com/apikey"
+                }
+            )
+
         # ADK Orchestration trace
         orchestrator_agent.orchestrate_scene_generation(
             project_id=str(project_id),
@@ -421,10 +477,11 @@ def regenerate_prompt(project_id: UUID, scene_number: int) -> PromptResponse:
             scene_number=scene_number,
             total_scenes=len(project.scenes),
             tone="regenerated",
-            model_tier=getattr(project.input, "model_tier", "flagship"),
+            model_tier=model_tier,
+            gemini_api_key=gemini_key,
         )
 
-        prompt = project_service.regenerate(project_id, scene_number)
+        prompt = project_service.regenerate(project_id, scene_number, gemini_api_key=gemini_key)
         latency = time.time() - t0
         
         # IBM watsonx Governance gate check
@@ -1345,6 +1402,7 @@ def public_submit_production(
     scene_number: int,
     background_tasks: BackgroundTasks,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    byok: ByokCredentials = Depends(get_byok_credentials),
 ) -> ProductionJobResponse:
     ikey = idempotency_key or f"prod-scene-{project_id}-{scene_number}-{datetime.now(timezone.utc).timestamp()}"
     request_hash = hashlib.sha256(f"public.production:{project_id}:{scene_number}".encode()).hexdigest()
@@ -1367,12 +1425,42 @@ def public_submit_production(
                 detail=f"Cost ceiling exceeded: Project token consumption ({consumed}) reached budget limit ({limit} tokens). Auto-Pilot render halted."
             )
 
+        video_key = resolve_video_provider_key(project.input.video_provider, byok)
+        tts_key = byok.elevenlabs
+
+        if is_byok_enforced():
+            if project.input.video_provider in {"runway", "kling", "gemini_omni"} and not video_key:
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error": "BYOK_KEY_REQUIRED",
+                        "provider": project.input.video_provider,
+                        "message": f"Rendering clips with {project.input.video_provider} requires your API key in Studio BYOK settings.",
+                    }
+                )
+            if project.input.tts_provider == "elevenlabs" and not tts_key:
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error": "BYOK_KEY_REQUIRED",
+                        "provider": "elevenlabs",
+                        "message": "Generating voiceover with ElevenLabs requires your ElevenLabs API key in Studio BYOK settings.",
+                    }
+                )
+
         job = project_service.repository.get_production_job(existing.response["job_id"]) if existing is not None and hasattr(project_service.repository, "get_production_job") else None
         if job is None:
             job = production_service.submit_clip(project, scene_number, project_service.repository)
             # Trigger background task if real providers are used or project is in autonomous autopilot mode
             if project.input.tts_provider != "mock" or project.input.video_provider != "mock" or project.input.autonomous:
-                background_tasks.add_task(run_production_pipeline_async, str(project_id), job.job_id, scene_number)
+                background_tasks.add_task(
+                    run_production_pipeline_async,
+                    str(project_id),
+                    job.job_id,
+                    scene_number,
+                    tts_api_key=tts_key,
+                    video_api_key=video_key,
+                )
     except ProjectNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Project not found") from exc
     except ProjectStateError as exc:
@@ -1578,10 +1666,22 @@ def public_mock_complete_youtube_upload(project_id: UUID, job_id: str, success: 
 # Modular Platform & Model Selection Routes (Features 1 - 5)
 # ---------------------------------------------------------------------------
 
+@router.post("/api/byok/verify", tags=["byok"])
+def verify_byok_key(request: ByokVerifyRequest):
+    if request.provider == "gemini":
+        res = verify_gemini_key(request.api_key)
+        if not res.get("valid"):
+            raise HTTPException(status_code=400, detail=res)
+        return res
+    if not request.api_key.strip():
+        raise HTTPException(status_code=400, detail={"valid": False, "message": "Key cannot be empty"})
+    return {"valid": True, "provider": request.provider, "message": f"{request.provider} key format accepted"}
+
+
 @router.get("/api/catalog/video-providers", tags=["catalog"])
-def get_video_provider_catalog():
+def get_video_provider_catalog(byok: ByokCredentials = Depends(get_byok_credentials)):
     from app.services.video_provider_catalog import VideoProviderCatalog
-    return [p.__dict__ for p in VideoProviderCatalog.list_providers()]
+    return [p.__dict__ for p in VideoProviderCatalog.list_providers(byok=byok)]
 
 
 @router.get("/api/catalog/model-tiers", tags=["catalog"])

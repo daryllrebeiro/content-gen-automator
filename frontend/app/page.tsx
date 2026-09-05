@@ -38,6 +38,8 @@ import {
   fetchModelTiers,
   fetchStudioPresets,
   fetchPlatformExports,
+  ByokKeys,
+  getStoredByokKeys,
 } from "../lib/api";
 import StatusTracker from "../components/StatusTracker";
 import PartnerEcosystemBar from "../components/PartnerEcosystemBar";
@@ -46,6 +48,7 @@ import FinOpsBudgetMonitor from "../components/FinOpsBudgetMonitor";
 import GovernanceAdvisorBadge from "../components/GovernanceAdvisorBadge";
 import PolicyPackManagerModal from "../components/PolicyPackManagerModal";
 import CertificateVerifierModal from "../components/CertificateVerifierModal";
+import ByokManagerModal from "../components/ByokManagerModal";
 
 // ── Constants & Helpers ──────────────────────────────────────────────────────
 
@@ -169,6 +172,23 @@ export default function HomePage() {
   const [showPolicyModal, setShowPolicyModal] = useState(false);
   const [showVerifierModal, setShowVerifierModal] = useState(false);
   const [activeCertificate, setActiveCertificate] = useState<any>(null);
+  const [showByokModal, setShowByokModal] = useState(false);
+  const [byokKeys, setByokKeys] = useState<ByokKeys>({});
+
+  const refreshByok = () => {
+    const stored = getStoredByokKeys();
+    setByokKeys(stored);
+    fetchVideoProviders().then(setVideoCatalog).catch(() => {});
+  };
+
+  useEffect(() => {
+    refreshByok();
+    const handleUpdate = () => refreshByok();
+    window.addEventListener("byok-keys-updated", handleUpdate);
+    return () => window.removeEventListener("byok-keys-updated", handleUpdate);
+  }, []);
+
+  const hasGeminiKey = Boolean(byokKeys.gemini && byokKeys.gemini.trim() && !byokKeys.gemini.startsWith("mock_"));
   const [rejectComment, setRejectComment] = useState<Record<number, string>>({});
   const [activeStage, setActiveStage] = useState(STAGES.PROMPTS);
 
@@ -270,7 +290,17 @@ export default function HomePage() {
   }, [project?.id]);
 
   function handleError(err: unknown) {
-    setError(err instanceof Error ? err.message : "Something went wrong.");
+    if (err && typeof err === "object" && "payload" in err) {
+      const payload = (err as any).payload;
+      if (payload?.detail?.error === "BYOK_KEY_REQUIRED" || payload?.error === "BYOK_KEY_REQUIRED") {
+        setShowByokModal(true);
+      }
+    }
+    const msg = err instanceof Error ? err.message : "Something went wrong.";
+    if (msg.includes("BYOK") || msg.includes("API key")) {
+      setShowByokModal(true);
+    }
+    setError(msg);
   }
 
   // ── Actions ────────────────────────────────────────────────────────────────
@@ -622,9 +652,40 @@ export default function HomePage() {
   if (!project) {
     return (
       <main className="shell form-shell">
-        <header className="topbar">
-          <span className="eyebrow">SHORTS CREATIVE FLOW</span>
-          <span className="status">MVP · AUTOMATION ENGINE</span>
+        <header className="topbar" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <span className="eyebrow">SHORTS CREATIVE FLOW</span>
+            <span className="status">MVP · AUTOMATION ENGINE</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowByokModal(true)}
+            style={{
+              fontSize: "12px",
+              fontWeight: 600,
+              padding: "6px 14px",
+              borderRadius: "8px",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "7px",
+              border: hasGeminiKey ? "1px solid rgba(16, 185, 129, 0.4)" : "1px solid rgba(255, 255, 255, 0.15)",
+              background: hasGeminiKey ? "rgba(16, 185, 129, 0.1)" : "rgba(255, 255, 255, 0.04)",
+              color: hasGeminiKey ? "#10b981" : "var(--ink)",
+              cursor: "pointer"
+            }}
+          >
+            <span>🔑 API Keys</span>
+            <span
+              style={{
+                width: "8px",
+                height: "8px",
+                borderRadius: "50%",
+                background: hasGeminiKey ? "#10b981" : "#f59e0b",
+                display: "inline-block",
+                boxShadow: hasGeminiKey ? "0 0 6px #10b981" : "none"
+              }}
+            />
+          </button>
         </header>
         <PartnerEcosystemBar />
         <FinOpsBudgetMonitor />
@@ -946,7 +1007,43 @@ export default function HomePage() {
             </span>
           </label>
 
-          {error && <p className="error">{error}</p>}
+          {error && (
+            <div
+              className="error"
+              style={{
+                padding: "12px 14px",
+                borderRadius: "8px",
+                background: "rgba(239, 68, 68, 0.1)",
+                border: "1px solid rgba(239, 68, 68, 0.3)",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: "10px",
+                marginBottom: "14px"
+              }}
+            >
+              <span>{error}</span>
+              {(error.includes("BYOK") || error.includes("API key") || error.includes("Gemini")) && (
+                <button
+                  type="button"
+                  onClick={() => setShowByokModal(true)}
+                  style={{
+                    background: "#c7f36b",
+                    border: "none",
+                    borderRadius: "6px",
+                    color: "#111827",
+                    padding: "5px 12px",
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap"
+                  }}
+                >
+                  🔑 Open API Keys
+                </button>
+              )}
+            </div>
+          )}
           <button className="primary full" disabled={busy}>
             {busy ? "Initializing Pipeline..." : "Create Project →"}
           </button>
@@ -955,6 +1052,11 @@ export default function HomePage() {
           isOpen={showPolicyModal}
           onClose={() => setShowPolicyModal(false)}
           onSelectPack={(id) => setPolicyPack(id)}
+        />
+        <ByokManagerModal
+          isOpen={showByokModal}
+          onClose={() => setShowByokModal(false)}
+          onKeysUpdated={refreshByok}
         />
       </main>
     );
@@ -967,28 +1069,59 @@ export default function HomePage() {
   return (
     <main className="shell">
       {/* Top Header */}
-      <header className="topbar">
+      <header className="topbar" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <span className="eyebrow" style={{ marginRight: "12px" }}>AUTOMATION SYSTEM</span>
           <StatusBadge status={project.status} />
         </div>
-        <button
-          className="secondary"
-          onClick={() => {
-            setProject(null);
-            setPrompts([]);
-            setProductionJobs([]);
-            setClips([]);
-            setFinalReview(null);
-            setUploadJobs([]);
-            setGateReport(null);
-            setAutoPilot(false);
-            setAutopilotLogs([]);
-            setError("");
-          }}
-        >
-          New Project
-        </button>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+          <button
+            type="button"
+            onClick={() => setShowByokModal(true)}
+            style={{
+              fontSize: "12px",
+              fontWeight: 600,
+              padding: "6px 14px",
+              borderRadius: "8px",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "7px",
+              border: hasGeminiKey ? "1px solid rgba(16, 185, 129, 0.4)" : "1px solid rgba(255, 255, 255, 0.15)",
+              background: hasGeminiKey ? "rgba(16, 185, 129, 0.1)" : "rgba(255, 255, 255, 0.04)",
+              color: hasGeminiKey ? "#10b981" : "var(--ink)",
+              cursor: "pointer"
+            }}
+          >
+            <span>🔑 API Keys</span>
+            <span
+              style={{
+                width: "8px",
+                height: "8px",
+                borderRadius: "50%",
+                background: hasGeminiKey ? "#10b981" : "#f59e0b",
+                display: "inline-block",
+                boxShadow: hasGeminiKey ? "0 0 6px #10b981" : "none"
+              }}
+            />
+          </button>
+          <button
+            className="secondary"
+            onClick={() => {
+              setProject(null);
+              setPrompts([]);
+              setProductionJobs([]);
+              setClips([]);
+              setFinalReview(null);
+              setUploadJobs([]);
+              setGateReport(null);
+              setAutoPilot(false);
+              setAutopilotLogs([]);
+              setError("");
+            }}
+          >
+            New Project
+          </button>
+        </div>
       </header>
 
       {/* 5-Partner Hackathon Ecosystem Bar */}
@@ -1151,7 +1284,43 @@ export default function HomePage() {
         </div>
       )}
 
-      {error && <p className="error" style={{ background: "rgba(239,68,68,0.1)", padding: "12px", borderRadius: "8px", border: "1px solid rgba(239,68,68,0.3)" }}>{error}</p>}
+      {error && (
+        <div
+          className="error"
+          style={{
+            background: "rgba(239, 68, 68, 0.1)",
+            padding: "12px 16px",
+            borderRadius: "8px",
+            border: "1px solid rgba(239, 68, 68, 0.3)",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: "12px",
+            marginBottom: "16px"
+          }}
+        >
+          <span>{error}</span>
+          {(error.includes("BYOK") || error.includes("API key") || error.includes("Gemini")) && (
+            <button
+              type="button"
+              onClick={() => setShowByokModal(true)}
+              style={{
+                background: "#c7f36b",
+                border: "none",
+                borderRadius: "6px",
+                color: "#111827",
+                padding: "6px 14px",
+                fontSize: "12px",
+                fontWeight: 700,
+                cursor: "pointer",
+                whiteSpace: "nowrap"
+              }}
+            >
+              🔑 Open API Keys
+            </button>
+          )}
+        </div>
+      )}
 
       {/* ── STAGE 1: PROMPTS ────────────────────────────────────────────────── */}
       {activeStage === STAGES.PROMPTS && (
@@ -1713,6 +1882,11 @@ export default function HomePage() {
         isOpen={showVerifierModal}
         onClose={() => setShowVerifierModal(false)}
         certificate={activeCertificate}
+      />
+      <ByokManagerModal
+        isOpen={showByokModal}
+        onClose={() => setShowByokModal(false)}
+        onKeysUpdated={refreshByok}
       />
     </main>
   );

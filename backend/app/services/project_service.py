@@ -191,7 +191,7 @@ class ProjectService:
             event = AuditEvent.now(hashlib.sha256(f"{event_type}:{project_id}:{datetime.now(timezone.utc).timestamp()}".encode()).hexdigest()[:24], event_type, project_id, request_id, metadata)
             self.repository.save_audit_event(event)
 
-    def generate_next(self, project_id: UUID) -> VideoPrompt:
+    def generate_next(self, project_id: UUID, gemini_api_key: str | None = None) -> VideoPrompt:
         project = self.repository.get(project_id)
         next_number = project.current_scene_number + 1
         if next_number > len(project.scenes):
@@ -205,7 +205,20 @@ class ProjectService:
         if existing is not None:
             return existing
 
-        prompt = self.prompt_pipeline.generate(project, project.scenes[next_number - 1])
+        if gemini_api_key:
+            from app.providers.gemini import GeminiProvider
+            from app.providers.reliability import RetryingProvider
+            pipeline = PromptGenerationPipeline(
+                RetryingProvider(
+                    GeminiProvider(api_key=gemini_api_key),
+                    max_attempts=int(os.getenv("PROVIDER_MAX_ATTEMPTS", "3")),
+                    timeout_seconds=float(os.getenv("PROVIDER_TIMEOUT_SECONDS", "30")),
+                )
+            )
+            prompt = pipeline.generate(project, project.scenes[next_number - 1])
+        else:
+            prompt = self.prompt_pipeline.generate(project, project.scenes[next_number - 1])
+
         project.prompts[next_number] = prompt
         project.current_scene_number = next_number
         project.status = (
@@ -281,7 +294,7 @@ class ProjectService:
         self._audit("facts.verification_completed", str(project.id), metadata={"job_id": job_id, "verified_count": job.verified_count, "failed_count": job.failed_count})
         return job
 
-    def regenerate(self, project_id: UUID, scene_number: int) -> VideoPrompt:
+    def regenerate(self, project_id: UUID, scene_number: int, gemini_api_key: str | None = None) -> VideoPrompt:
         project = self.repository.get(project_id)
         if scene_number < 1 or scene_number > len(project.scenes):
             raise ProjectStateError("Scene number is outside this project.")
@@ -291,7 +304,21 @@ class ProjectService:
         current = project.prompts[scene_number]
         history = project.prompt_history.setdefault(scene_number, [])
         history.append(current)
-        regenerated = self.prompt_pipeline.generate(project, project.scenes[scene_number - 1])
+
+        if gemini_api_key:
+            from app.providers.gemini import GeminiProvider
+            from app.providers.reliability import RetryingProvider
+            pipeline = PromptGenerationPipeline(
+                RetryingProvider(
+                    GeminiProvider(api_key=gemini_api_key),
+                    max_attempts=int(os.getenv("PROVIDER_MAX_ATTEMPTS", "3")),
+                    timeout_seconds=float(os.getenv("PROVIDER_TIMEOUT_SECONDS", "30")),
+                )
+            )
+            regenerated = pipeline.generate(project, project.scenes[scene_number - 1])
+        else:
+            regenerated = self.prompt_pipeline.generate(project, project.scenes[scene_number - 1])
+
         regenerated.version_number = current.version_number + 1
         regenerated.template_version = current.template_version
         project.prompts[scene_number] = regenerated

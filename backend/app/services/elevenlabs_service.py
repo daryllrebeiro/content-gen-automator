@@ -1,5 +1,6 @@
 import os
 import httpx
+from typing import Optional
 
 class ElevenLabsTTSService:
     def __init__(self, api_key: str | None = None) -> None:
@@ -7,20 +8,21 @@ class ElevenLabsTTSService:
         # Standard warm documentary voice ID
         self.voice_id = os.environ.get("ELEVENLABS_VOICE_ID", "pNInz6obpgq5apaqa9W4")
 
-    def synthesize(self, project_id: str, scene_number: int, text: str) -> str:
+    def synthesize(self, project_id: str, scene_number: int, text: str, api_key: Optional[str] = None) -> str:
         """Synthesize text to speech using ElevenLabs API and save to static folder.
 
-        If api_key is missing, fails gracefully by logging a warning and raising config error.
+        If api_key is missing, fails gracefully with an actionable BYOK error message.
         """
-        if not self.api_key:
+        key = api_key or self.api_key
+        if not key:
             raise ValueError(
-                "ELEVENLABS_API_KEY is not configured in environment variables. "
-                "Set tts_provider to 'mock' or configure the API key."
+                "ELEVENLABS_API_KEY is not configured. "
+                "Please provide your ElevenLabs API Key in Studio BYOK settings, or set tts_provider to 'mock'."
             )
 
         url = f"https://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}"
         headers = {
-            "xi-api-key": self.api_key,
+            "xi-api-key": key,
             "Content-Type": "application/json",
         }
         data = {

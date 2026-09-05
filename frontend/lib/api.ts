@@ -203,6 +203,55 @@ export type YouTubeUploadJob = {
   error: string;
 };
 
+export type ByokKeys = {
+  gemini?: string;
+  runway?: string;
+  kling?: string;
+  elevenlabs?: string;
+};
+
+export const BYOK_STORAGE_KEY = "cga_byok_keys";
+
+export function getStoredByokKeys(): ByokKeys {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(BYOK_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveStoredByokKeys(keys: ByokKeys): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(BYOK_STORAGE_KEY, JSON.stringify(keys));
+    window.dispatchEvent(new CustomEvent("byok-keys-updated", { detail: keys }));
+  } catch (e) {
+    console.error("Failed to save BYOK keys to localStorage", e);
+  }
+}
+
+export function clearStoredByokKeys(): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(BYOK_STORAGE_KEY);
+    window.dispatchEvent(new CustomEvent("byok-keys-updated", { detail: {} }));
+  } catch (e) {
+    console.error("Failed to clear BYOK keys", e);
+  }
+}
+
+export function getByokHeaders(): Record<string, string> {
+  const keys = getStoredByokKeys();
+  const headers: Record<string, string> = {};
+  if (keys.gemini?.trim()) headers["X-Gemini-API-Key"] = keys.gemini.trim();
+  if (keys.runway?.trim()) headers["X-Runway-API-Key"] = keys.runway.trim();
+  if (keys.kling?.trim()) headers["X-Kling-API-Key"] = keys.kling.trim();
+  if (keys.elevenlabs?.trim()) headers["X-ElevenLabs-API-Key"] = keys.elevenlabs.trim();
+  return headers;
+}
+
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL !== undefined && process.env.NEXT_PUBLIC_API_BASE_URL !== ""
     ? process.env.NEXT_PUBLIC_API_BASE_URL
@@ -211,15 +260,40 @@ const API_BASE =
     : process.env.BACKEND_URL || "http://127.0.0.1:8000";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const byokHeaders = getByokHeaders();
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
-    headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) },
+    headers: {
+      "Content-Type": "application/json",
+      ...byokHeaders,
+      ...(options?.headers ?? {}),
+    },
   });
   if (!response.ok) {
-    const detail = await response.json().catch(() => null);
-    throw new Error(detail?.detail ?? `Request failed with ${response.status}`);
+    const raw = await response.json().catch(() => null);
+    let errorMsg = `Request failed with ${response.status}`;
+    if (raw?.detail) {
+      if (typeof raw.detail === "string") {
+        errorMsg = raw.detail;
+      } else if (typeof raw.detail === "object") {
+        errorMsg = raw.detail.message || JSON.stringify(raw.detail);
+      }
+    } else if (raw?.message) {
+      errorMsg = raw.message;
+    }
+    const err: any = new Error(errorMsg);
+    err.status = response.status;
+    err.payload = raw;
+    throw err;
   }
   return response.json() as Promise<T>;
+}
+
+export async function verifyByokKey(provider: string, apiKey: string): Promise<{ valid: boolean; message: string }> {
+  return request<{ valid: boolean; message: string }>("/api/byok/verify", {
+    method: "POST",
+    body: JSON.stringify({ provider, api_key: apiKey }),
+  });
 }
 
 export function createProject(input: ProjectInput) {

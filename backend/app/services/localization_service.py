@@ -23,13 +23,14 @@ class LocalizationService:
             "it-IT": "Italian"
         }
 
-    def _translate_script(self, narration_en: str, target_locale: str) -> tuple[str, str]:
+    def _translate_script(self, narration_en: str, target_locale: str, api_key: str | None = None) -> tuple[str, str]:
         """Translates narration into target locale using Gemini when available, or rule-based phonetic engine."""
-        api_key = os.getenv("GEMINI_API_KEY", "")
-        if api_key and not api_key.startswith("mock_"):
+        from app.api.byok import is_byok_enforced
+        key = api_key if api_key else (None if is_byok_enforced() else os.getenv("GEMINI_API_KEY", ""))
+        if key and not key.startswith("mock_"):
             try:
                 from google import genai
-                client = genai.Client(api_key=api_key)
+                client = genai.Client(api_key=key)
                 prompt = (
                     f"You are an expert cinematic localization translator for YouTube Shorts.\n"
                     f"Translate the following English voiceover script into {self.supported_locales.get(target_locale, target_locale)}.\n"
@@ -116,12 +117,12 @@ class LocalizationService:
             f"2\n00:0{t_mid}.000 --> 00:{duration_sec:02d}.000\n{line2}\n"
         )
 
-    def localize_project(self, project_id: str, topic: str, narration_en: str, target_locale: str = "es-ES", duration_seconds: int = 10) -> Dict[str, Any]:
+    def localize_project(self, project_id: str, topic: str, narration_en: str, target_locale: str = "es-ES", duration_seconds: int = 10, api_key: str | None = None) -> Dict[str, Any]:
         if target_locale not in self.supported_locales:
             target_locale = "es-ES"
 
         # 1. Translate narration
-        translated_narration, provider = self._translate_script(narration_en, target_locale)
+        translated_narration, provider = self._translate_script(narration_en, target_locale, api_key=api_key)
 
         # 2. Independent territory governance check
         locale_policy = f"locale_{target_locale.replace('-', '_')}"

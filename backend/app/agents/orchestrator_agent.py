@@ -33,7 +33,8 @@ class OrchestratorAgent(LlmAgent):
         visual_style: str = "stylized cinematic 3D animation",
         facts: Optional[List[str]] = None,
         studio_id: str = "studio_default",
-        model_tier: str = "flagship"
+        model_tier: str = "flagship",
+        gemini_api_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Coordinates full A2A multi-agent sequence for a scene:
