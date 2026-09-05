@@ -5,7 +5,7 @@ import json
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, BackgroundTasks, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, BackgroundTasks, Response, Request
 import time
 
 from app.schemas.health import HealthResponse, ReadinessResponse
@@ -69,6 +69,7 @@ from app.api.byok import (
     resolve_gemini_key,
     resolve_video_provider_key,
     verify_gemini_key,
+    verify_rate_limiter,
     is_byok_enforced,
 )
 
@@ -366,10 +367,11 @@ def generate_first_prompt(
         project = project_service.repository.get(project_id)
         current_scene_idx = len(project.prompts) + 1
         model_tier = getattr(project.input, "model_tier", "flagship")
+        user_byok_gemini = byok.gemini_api_key.strip() if byok.gemini_api_key else None
         gemini_key = resolve_gemini_key(byok)
 
-        # Enforce BYOK in production for real Gemini provider
-        if is_byok_enforced() and os.getenv("LLM_PROVIDER", "mock").lower() == "gemini" and not gemini_key:
+        # 1. Enforce strict BYOK if BYOK_ENFORCED=true
+        if is_byok_enforced() and os.getenv("LLM_PROVIDER", "mock").lower() == "gemini" and not user_byok_gemini:
             raise HTTPException(
                 status_code=400,
                 detail={
@@ -379,6 +381,35 @@ def generate_first_prompt(
                         "Generating content with Google Gemini requires your Gemini API key in Studio BYOK settings. "
                         "Click '🔑 API Keys' in the top bar to configure your key, or run in Simulated Studio (Mock) mode."
                     ),
+                    "action_url": "https://aistudio.google.com/apikey"
+                }
+            )
+
+        # 2. Hybrid Model: When using the server's key, enforce FinOps token budget ceiling
+        if not user_byok_gemini and gemini_key:
+            budget = getattr(project.input, "token_budget", 50000)
+            is_exceeded, consumed, limit = telemetry.is_cost_ceiling_exceeded(str(project_id), budget)
+            if is_exceeded:
+                raise HTTPException(
+                    status_code=429,
+                    detail={
+                        "error": "COST_CEILING_EXCEEDED",
+                        "provider": "gemini",
+                        "message": (
+                            f"Free evaluation token budget reached ({consumed}/{limit} tokens). "
+                            "To continue generating, please configure your Gemini API Key in Studio BYOK settings (click '🔑 API Keys' in the top bar)."
+                        ),
+                        "action_url": "https://aistudio.google.com/apikey"
+                    }
+                )
+
+        if not gemini_key and os.getenv("LLM_PROVIDER", "mock").lower() == "gemini":
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "BYOK_KEY_REQUIRED",
+                    "provider": "gemini",
+                    "message": "Generating content with Google Gemini requires your Gemini API key in Studio BYOK settings.",
                     "action_url": "https://aistudio.google.com/apikey"
                 }
             )
@@ -457,9 +488,40 @@ def regenerate_prompt(
         t0 = time.time()
         project = project_service.repository.get(project_id)
         model_tier = getattr(project.input, "model_tier", "flagship")
+        user_byok_gemini = byok.gemini_api_key.strip() if byok.gemini_api_key else None
         gemini_key = resolve_gemini_key(byok)
 
-        if is_byok_enforced() and os.getenv("LLM_PROVIDER", "mock").lower() == "gemini" and not gemini_key:
+        # 1. Enforce strict BYOK if BYOK_ENFORCED=true
+        if is_byok_enforced() and os.getenv("LLM_PROVIDER", "mock").lower() == "gemini" and not user_byok_gemini:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "BYOK_KEY_REQUIRED",
+                    "provider": "gemini",
+                    "message": "Regenerating content with Google Gemini requires your Gemini API key in Studio BYOK settings.",
+                    "action_url": "https://aistudio.google.com/apikey"
+                }
+            )
+
+        # 2. Hybrid Model: When using server key, enforce FinOps cost ceiling
+        if not user_byok_gemini and gemini_key:
+            budget = getattr(project.input, "token_budget", 50000)
+            is_exceeded, consumed, limit = telemetry.is_cost_ceiling_exceeded(str(project_id), budget)
+            if is_exceeded:
+                raise HTTPException(
+                    status_code=429,
+                    detail={
+                        "error": "COST_CEILING_EXCEEDED",
+                        "provider": "gemini",
+                        "message": (
+                            f"Free evaluation token budget reached ({consumed}/{limit} tokens). "
+                            "To continue generating, please configure your Gemini API Key in Studio BYOK settings (click '🔑 API Keys' in the top bar)."
+                        ),
+                        "action_url": "https://aistudio.google.com/apikey"
+                    }
+                )
+
+        if not gemini_key and os.getenv("LLM_PROVIDER", "mock").lower() == "gemini":
             raise HTTPException(
                 status_code=400,
                 detail={
@@ -1667,15 +1729,26 @@ def public_mock_complete_youtube_upload(project_id: UUID, job_id: str, success: 
 # ---------------------------------------------------------------------------
 
 @router.post("/api/byok/verify", tags=["byok"])
-def verify_byok_key(request: ByokVerifyRequest):
-    if request.provider == "gemini":
-        res = verify_gemini_key(request.api_key)
+def verify_byok_key(request_body: ByokVerifyRequest, request: Request):
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    allowed, retry_after = verify_rate_limiter.is_allowed(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": "RATE_LIMIT_EXCEEDED",
+                "message": f"Verification rate limit exceeded (maximum 10 attempts per minute). Please retry in {retry_after} seconds."
+            }
+        )
+
+    if request_body.provider == "gemini":
+        res = verify_gemini_key(request_body.api_key)
         if not res.get("valid"):
             raise HTTPException(status_code=400, detail=res)
         return res
-    if not request.api_key.strip():
+    if not request_body.api_key.strip():
         raise HTTPException(status_code=400, detail={"valid": False, "message": "Key cannot be empty"})
-    return {"valid": True, "provider": request.provider, "message": f"{request.provider} key format accepted"}
+    return {"valid": True, "provider": request_body.provider, "message": f"{request_body.provider} key format accepted"}
 
 
 @router.get("/api/catalog/video-providers", tags=["catalog"])
