@@ -62,6 +62,7 @@ else
     BACKEND_PORT="${BACKEND_PORT:-8001}"
   else
     BACKEND_PORT="${BACKEND_PORT:-8000}"
+  fi
   export BACKEND_URL="http://127.0.0.1:${BACKEND_PORT}"
 
   # Clean up any lingering processes on the target ports
