@@ -5,7 +5,10 @@
 [![Next.js: 15+](https://img.shields.io/badge/Next.js-15-black.svg)](https://nextjs.org/)
 [![Gemini: 2.5 Flash](https://img.shields.io/badge/Gemini-2.5%20Flash-orange.svg)](https://cloud.google.com/vertex-ai)
 [![IBM: watsonx](https://img.shields.io/badge/IBM-watsonx.governance-purple.svg)](https://www.ibm.com/products/watsonx-governance)
-[![Tests: 95 Passing](https://img.shields.io/badge/Tests-95%20Passing-brightgreen.svg)](backend/tests/)
+[![Tests: 132 Passing](https://img.shields.io/badge/Tests-132%20Passing-brightgreen.svg)](backend/tests/)
+[![Gates: 7/8 Passing](https://img.shields.io/badge/Verification%20Gates-7%2F8%20Pass-success.svg)](scripts/final_gate_check.py)
+[![Cloud Run: Live](https://img.shields.io/badge/Cloud%20Run-Live-blue.svg)](https://content-gen-automator-backend-78123600362.us-central1.run.app)
+[![Replit: Live](https://img.shields.io/badge/Replit-Live-red.svg)](https://content-gen-automator--daryllrebeiro07.replit.app)
 
 > **A stateful, multi-agent cinematic production studio built with Gemini Enterprise & Google Cloud ADK, governed by IBM watsonx, grounded by Parallel Search, monitored by Grafana Labs, analyzed in ClickHouse, and deployable in 1-click on Replit & Google Cloud Run.**
 
@@ -24,36 +27,107 @@ While our platform deeply integrates all 5 ecosystem partners at runtime, the co
 
 ## 🏛️ Master System Architecture
 
+> [!TIP]
+> **Verification Status Color Key:**
+> 🟢 **Solid Green (`#2e7d32`):** Verified Real & Live in Current Deployment (Cloud Run, Replit, ADK Tree, FastAPI, Parallel Grounding, Grafana/OpenLIT OTLP, ClickHouse, FFmpeg).
+> 🟡 **Amber Dashed (`#f9a825`):** Built & Testable Fallback / In-Process Runner (IBM watsonx local heuristic engine, local durable memory bank, in-process Agent Engine runner).
+> 🔘 **Gray Dashed (`#424242`):** Roadmap / Unconfigured Credentials (Runway/Kling video API keys, TikTok/Instagram direct API publishing).
+
 ```mermaid
-graph TD
-    Director([Director / Creator]) --> UI[Next.js Studio UI + Faro RUM]
-    UI --> API[FastAPI Orchestration Core]
-    
-    subgraph "ADK Multi-Agent Core (Gemini Enterprise)"
-        Orchestrator[OrchestratorAgent - Root ADK LlmAgent]
+flowchart TD
+    classDef live fill:#2e7d32,stroke:#1b5e20,stroke-width:2px,color:#fff;
+    classDef fallback fill:#f9a825,stroke:#e65100,stroke-width:2px,stroke-dasharray: 5 5,color:#000;
+    classDef roadmap fill:#424242,stroke:#757575,stroke-width:2px,stroke-dasharray: 3 3,color:#fff;
+    classDef client fill:#1565c0,stroke:#0d47a1,stroke-width:2px,color:#fff;
+    classDef security fill:#c62828,stroke:#b71c1c,stroke-width:2px,color:#fff;
+
+    Director([Director / Studio Creator]):::client --> UI[Next.js 15 Cyberpunk Studio UI]:::live
+
+    subgraph Client_BYOK ["Client-Side Security & BYOK Layer"]
+        UI -.-> KeyVault[("Browser KeyStore (BYOK Vault)
+        X-Gemini-API-Key, X-Runway, etc.")]:::security
+        KeyVault -.->|Optional Header Injection| API
+    end
+
+    UI -->|REST & SSE Events| API[FastAPI Orchestration Core]:::live
+
+    subgraph Deployment_Targets ["Dual Cloud Deployment Targets"]
+        CloudRun["Google Cloud Run (Primary Production)
+        us-central1 Container Instance"]:::live
+        ReplitHost["Replit Cloud (Secondary Production)
+        Instant 1-Click Multi-Process Supervisor"]:::live
+    end
+
+    API --- CloudRun
+    API --- ReplitHost
+
+    subgraph FinOps_Guardrail ["FinOps Token Guardrail"]
+        BudgetGate{"Token Budget Check
+        (50,000 Token Cap)"}:::security
+        Halt429["HTTP 429 Cost Ceiling Exceeded"]:::security
+        BudgetGate -->|Exceeded| Halt429
+    end
+
+    API --> BudgetGate
+    BudgetGate -->|Within Budget| ADKCore
+
+    subgraph ADKCore ["ADK Multi-Agent Core (google-adk 2.8.0)"]
+        Orchestrator["OrchestratorAgent (Root LlmAgent)"]:::live
+        ResearchAgent["ResearchAgent (Parallel Grounding)"]:::live
+        ScreenwriterAgent["ScreenwriterAgent (Narration & Word Pacing)"]:::live
+        CinematographerAgent["CinematographerAgent (Visual Directives)"]:::live
+        ContinuityAgent["ContinuityAgent (Style Lock & Seeds)"]:::live
+        GovernanceAgent["GovernanceAgent (IBM watsonx Gatekeeper)"]:::live
+        PublishingAgent["PublishingAgent (8 Security Gates)"]:::live
+
+        Orchestrator -->|A2A Handoff| ResearchAgent
+        Orchestrator -->|A2A Handoff| ScreenwriterAgent
+        Orchestrator -->|A2A Handoff| CinematographerAgent
+        Orchestrator -->|A2A Handoff| ContinuityAgent
+        Orchestrator -->|A2A Handoff| GovernanceAgent
+        Orchestrator -->|A2A Handoff| PublishingAgent
+    end
+
+    subgraph Ecosystem_Stack ["Runtime Intelligence & Partner Ecosystem"]
+        ResearchAgent --> ParallelLive["Parallel Search API Grounding"]:::live
+        ContinuityAgent --> LocalMemory[("Durable Local Memory Bank
+        (File/Session Atomic Persistence)")]:::fallback
+        Orchestrator --> GrafanaOTLP["Grafana Cloud / OpenLIT Metrics
+        (/metrics Prometheus Exposition)"]:::live
+        Orchestrator --> ClickHouseStore[("ClickHouse Analytics
+        (Dual In-Memory / Cloud Adapter)")]:::live
+        GovernanceAgent --> WatsonxLive["IBM watsonx.governance API"]:::fallback
+        GovernanceAgent --> WatsonxHeuristic["Dual-Pass local_rule_heuristic
+        (Active in Deployed Environment)"]:::live
+        WatsonxLive -.->|Fallback if Key Unset| WatsonxHeuristic
+        ADKCore -.-> RemoteAgentEngine["Vertex AI Agent Engine
+        (Remote Hosting Adapter)"]:::fallback
+    end
+
+    subgraph Video_Generation ["Video & Voice Generation (BYOK / Fallback)"]
+        CinematographerAgent --> VideoMock["Deterministic Mock Generator"]:::live
+        CinematographerAgent -.-> RunwayAPI["Runway Gen-3 Alpha API"]:::roadmap
+        CinematographerAgent -.-> KlingAPI["Kling AI API"]:::roadmap
+        ScreenwriterAgent -.-> ElevenLabsAPI["ElevenLabs TTS API"]:::roadmap
+    end
+
+    subgraph Multi_Platform_Delivery ["Production & Multi-Platform Fan-Out"]
+        PublishingAgent --> GateCheck{"8 Fail-Closed Publishing Gates
+        (IBM, Artifacts, Manifest, Integrity)"}:::security
+        GateCheck -->|Pass| FFmpegMux["FFmpeg 9:16 Video Engine"]:::live
         
-        Orchestrator --> ResearchAgent[ResearchAgent - Parallel Grounding]
-        Orchestrator --> ScreenwriterAgent[ScreenwriterAgent - Narration & Pacing]
-        Orchestrator --> CinematographerAgent[CinematographerAgent - Visual Prompts]
-        Orchestrator --> ContinuityAgent[ContinuityAgent - Memory Bank & Bibles]
-        Orchestrator --> GovernanceAgent[GovernanceAgent - IBM watsonx Gate]
-        Orchestrator --> PublishingAgent[PublishingAgent - 7 Gates & YouTube OAuth]
+        FFmpegMux --> YTOAuth["YouTube Shorts API (OAuth2 Job)"]:::live
+        FFmpegMux --> TTPackage["TikTok Manual Export Package
+        (manifest.json, captions.vtt, .mp4)"]:::live
+        FFmpegMux --> IGPackage["Instagram Reels Export Package
+        (manifest.json, captions.vtt, .mp4)"]:::live
+        
+        TTPackage -.-> DirectTT["TikTok Direct API"]:::roadmap
+        IGPackage -.-> DirectIG["Instagram Graph API"]:::roadmap
+        
+        PublishingAgent --> CertGen["Cryptographic Compliance Certificate
+        (HMAC-SHA256 Signed JSON + PDF)"]:::live
     end
-
-    subgraph "5-Partner Runtime Intelligence Stack"
-        GovernanceAgent --> IBM[IBM watsonx.governance API]
-        ResearchAgent --> Parallel[Parallel Search API & Grounding]
-        ContinuityAgent --> MemoryBank[(Studio Memory Bank & Seed Lock)]
-        Orchestrator --> GrafanaOTLP[Grafana Cloud / OpenLIT OTLP]
-        Orchestrator --> ClickHouse[(ClickHouse Columnar Analytics Store)]
-    end
-
-    subgraph "Production & Multi-Platform Delivery"
-        PublishingAgent --> FFmpegStitch[FFmpeg Video Concatenator & Muxer]
-        PublishingAgent --> YouTubeLive[YouTube Shorts API]
-        PublishingAgent --> CertService[Signed Compliance Certificate JSON + PDF]
-    end
-```
 
 ---
 
@@ -124,7 +198,7 @@ npm run dev
 Open Studio at `http://localhost:3000`.
 
 ### 4. Running Verification Tests
-Execute the comprehensive test suite (75 automated unit and contract tests):
+Execute the comprehensive test suite (132 automated unit and contract tests):
 ```bash
 cd backend
 py -m pytest -v
@@ -143,11 +217,20 @@ py scripts/check_no_secrets.py
 
 ---
 
-## 📹 Demo & Video Submission
-* 🎥 **Demo Video:** [Watch functioning walkthrough on YouTube](https://youtu.be/demo-agentic-cinema) *(3-minute full studio demo)*
-* 🌐 **Live Studio URL:** [https://content-gen-automator.replit.app](https://content-gen-automator.replit.app)
+## 📹 Demo & Live Deployment Links
+* 🎥 **Demo Video:** [Watch functioning walkthrough on YouTube](https://youtu.be/demo-agentic-cinema) *(Flagged: pending video recording)*
+* 🚀 **Primary Production URL (Google Cloud Run):** [https://content-gen-automator-backend-78123600362.us-central1.run.app](https://content-gen-automator-backend-78123600362.us-central1.run.app)
+* 🌐 **Secondary Production URL (Replit Cloud):** [https://content-gen-automator--daryllrebeiro07.replit.app](https://content-gen-automator--daryllrebeiro07.replit.app)
+* 💻 **GitHub Repository:** [https://github.com/daryllrebeiro/ContentGenAutomator](https://github.com/daryllrebeiro/ContentGenAutomator)
 
-## 📚 Deep Dive Documentation
+## 📚 Deep Dive Documentation & Subsystem Diagrams
+* 🗺️ [**Detailed Subsystem Diagrams Directory**](diagrams/)
+  * 🤖 [ADK Multi-Agent Topology (`diagrams/agent-topology.md`)](diagrams/agent-topology.md)
+  * 🛡️ [IBM watsonx Governance Pipeline (`diagrams/governance-pipeline.md`)](diagrams/governance-pipeline.md)
+  * 🗄️ [Domain Data Model ER (`diagrams/domain-data-model.md`)](diagrams/domain-data-model.md)
+  * 🔄 [Publishing Lifecycle & 8-Gate FSM (`diagrams/publishing-lifecycle.md`)](diagrams/publishing-lifecycle.md)
+  * ☁️ [Dual-Deployment Infrastructure & BYOK (`diagrams/deployment-infra.md`)](diagrams/deployment-infra.md)
+  * 📱 [Multi-Platform Export Fan-Out (`diagrams/multi-platform-export-flow.md`)](diagrams/multi-platform-export-flow.md)
 * 📖 [**Features Explainer & Architecture Guide**](features_explainer.md)
 * 🛡️ [**IAM Security Matrix & Least Privilege Specs**](docs/IAM.md)
 * 🤖 [**ADK Agent Topology & A2A Handoffs**](docs/AGENT_TOPOLOGY.md)
