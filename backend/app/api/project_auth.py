@@ -17,13 +17,23 @@ def require_project_owner(
     Validates the caller's X-Project-Owner-Token against the high-entropy server-side token.
     Uses constant-time comparison (hmac.compare_digest) to prevent timing attacks.
     """
+    if not x_project_owner_token:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: Valid X-Project-Owner-Token required for this project."
+        )
+
     try:
         project = project_service.repository.get(project_id)
-    except ProjectNotFoundError as exc:
-        raise HTTPException(status_code=404, detail="Project not found") from exc
+    except ProjectNotFoundError:
+        # Uniform 403 prevents timing/status oracle on UUID existence
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: Valid X-Project-Owner-Token required for this project."
+        )
 
     stored_token = getattr(project, "owner_token", None) or ""
-    if not stored_token or not x_project_owner_token or not hmac.compare_digest(x_project_owner_token, stored_token):
+    if not stored_token or not hmac.compare_digest(x_project_owner_token, stored_token):
         raise HTTPException(
             status_code=403,
             detail="Access denied: Valid X-Project-Owner-Token required for this project."

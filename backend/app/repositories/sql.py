@@ -33,6 +33,7 @@ class ProjectRecord(Base):
     status: Mapped[str] = mapped_column(String(40))
     current_scene_number: Mapped[int] = mapped_column(default=0)
     owner_token: Mapped[str] = mapped_column(String(64), nullable=True, default="")
+    version: Mapped[int] = mapped_column(default=0)
     input_data: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     story_data: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     continuity_data: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
@@ -212,12 +213,19 @@ class SqlProjectRepository:
         self.engine = create_engine(database_url, pool_pre_ping=True)
         Base.metadata.create_all(self.engine)
 
-    def save(self, project: Project) -> Project:
+    def save(self, project: Project, expected_version: int | None = None) -> Project:
         with Session(self.engine) as session:
             record = session.get(ProjectRecord, str(project.id))
             if record is None:
-                record = ProjectRecord(id=str(project.id), topic=project.input.topic, duration_seconds=project.input.duration_seconds)
+                record = ProjectRecord(id=str(project.id), topic=project.input.topic, duration_seconds=project.input.duration_seconds, version=1)
                 session.add(record)
+                project.version = 1
+            else:
+                current_ver = getattr(record, "version", 0)
+                if expected_version is not None and current_ver != expected_version:
+                    raise ProjectStateError(f"Concurrency conflict: Project version mismatch (expected {expected_version}, got {current_ver}).")
+                record.version = current_ver + 1
+                project.version = record.version
             record.topic = project.input.topic
             record.duration_seconds = project.input.duration_seconds
             record.status = project.status.value
@@ -522,6 +530,7 @@ class SqlProjectRepository:
             current_scene_number=record.current_scene_number,
             input=ProjectInput(topic=record.topic, duration_seconds=record.duration_seconds, **input_data),
             owner_token=getattr(record, "owner_token", "") or "",
+            version=getattr(record, "version", 0),
         )
         for k, v in (platform_exports_raw or {}).items():
             project.platform_exports[k] = PlatformExport(

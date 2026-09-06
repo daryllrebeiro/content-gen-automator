@@ -53,13 +53,13 @@ def test_finding_a_project_authorization_and_isolation():
     # Token must NOT be exposed in subsequent reads
     assert authed_res.json().get("owner_token") is None, "owner_token must not be disclosed in GET project"
 
-    # 5. Non-existent project -> 404
+    # 5. Non-existent project -> uniform 403 prevents timing/status oracle (Finding N-3)
     non_existent = str(uuid4())
     missing_res = client.get(
         f"/api/projects/{non_existent}",
         headers={"X-Project-Owner-Token": owner_token},
     )
-    assert missing_res.status_code == 404
+    assert missing_res.status_code == 403
 
     # 6. Legacy project with owner_token=None permanently returns 403
     legacy_project = project_service.create(ProjectInput(topic="Legacy Project Without Owner"))

@@ -65,6 +65,14 @@ class ByokCredentials(BaseModel):
     def has_elevenlabs(self) -> bool:
         return bool(self.elevenlabs_api_key and self.elevenlabs_api_key.strip())
 
+    def has_any_keys(self) -> bool:
+        return bool(
+            (self.gemini_api_key and self.gemini_api_key.strip())
+            or (self.runway_api_key and self.runway_api_key.strip())
+            or (self.kling_api_key and self.kling_api_key.strip())
+            or (self.elevenlabs_api_key and self.elevenlabs_api_key.strip())
+        )
+
 
 def is_byok_enforced() -> bool:
     """Returns True if strict BYOK enforcement is explicitly enabled via BYOK_ENFORCED=true.

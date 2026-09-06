@@ -1,5 +1,6 @@
 import time
 import os
+import threading
 from collections import defaultdict
 from typing import Dict, Any
 
@@ -18,6 +19,7 @@ class GrafanaTelemetry:
         return cls._instance
 
     def _init_metrics(self):
+        self._budget_lock = threading.Lock()
         self.projects_created = 0
         self.active_jobs = 0
         self.prompt_latencies = []
@@ -51,15 +53,33 @@ class GrafanaTelemetry:
         self.input_tokens += input_tokens
         self.output_tokens += output_tokens
         if project_id:
-            self.project_tokens[str(project_id)] += (input_tokens + output_tokens)
+            with self._budget_lock:
+                self.project_tokens[str(project_id)] += (input_tokens + output_tokens)
 
-    def is_cost_ceiling_exceeded(self, project_id: str, token_budget: int = 50000) -> tuple[bool, int, int]:
+    def is_cost_ceiling_exceeded(self, project_id: str, token_budget: int = 50000, reserve_tokens: int = 0) -> tuple[bool, int, int]:
         """
-        Enforces enterprise cost-ceiling guardrails.
+        Enforces enterprise cost-ceiling guardrails with atomic reservation locking.
         Returns (is_exceeded, tokens_consumed, token_budget).
         """
-        consumed = self.project_tokens.get(str(project_id), 0)
-        return (consumed > token_budget, consumed, token_budget)
+        with self._budget_lock:
+            consumed = self.project_tokens.get(str(project_id), 0)
+            if consumed >= token_budget or (reserve_tokens > 0 and (consumed + reserve_tokens) > token_budget):
+                return (True, consumed, token_budget)
+            if reserve_tokens > 0:
+                self.project_tokens[str(project_id)] = consumed + reserve_tokens
+            return (False, consumed, token_budget)
+
+    def reserve_cost_allowance(self, project_id: str, estimated_tokens: int, token_budget: int = 50000) -> tuple[bool, int, int]:
+        """
+        Atomically checks and reserves estimated tokens against the project ceiling under lock.
+        Returns (admitted: bool, consumed: int, token_budget: int).
+        """
+        with self._budget_lock:
+            consumed = self.project_tokens.get(str(project_id), 0)
+            if consumed >= token_budget or (consumed + estimated_tokens) > token_budget:
+                return (False, consumed, token_budget)
+            self.project_tokens[str(project_id)] = consumed + estimated_tokens
+            return (True, self.project_tokens[str(project_id)], token_budget)
 
     def get_project_token_usage(self, project_id: str) -> int:
         return self.project_tokens.get(str(project_id), 0)

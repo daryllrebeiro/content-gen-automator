@@ -2,6 +2,8 @@ from uuid import UUID
 import os
 import hashlib
 import json
+import copy
+import threading
 from datetime import datetime, timezone
 from typing import Any
 from app.domain.integration import ApprovalEvent, AuditEvent, ClipArtifact, ClipReviewEvent, DeliveryJob, EvidenceRecord, ExportManifest, FactVerificationJob, FinalReviewEvent, IdempotencyRecord, ProductionJob, YouTubeUploadJob
@@ -23,6 +25,8 @@ class ProjectStateError(ValueError):
 class InMemoryProjectRepository:
     def __init__(self) -> None:
         self._projects: dict[UUID, Project] = {}
+        self._versions: dict[UUID, int] = {}
+        self._lock = threading.Lock()
         self._idempotency: dict[str, IdempotencyRecord] = {}
         self.audit_events: list[AuditEvent] = []
         self.approval_events: list[ApprovalEvent] = []
@@ -36,15 +40,25 @@ class InMemoryProjectRepository:
         self.final_review_events: list[FinalReviewEvent] = []
         self.youtube_upload_jobs: dict[str, YouTubeUploadJob] = {}
 
-    def save(self, project: Project) -> Project:
-        self._projects[project.id] = project
-        return project
+    def save(self, project: Project, expected_version: int | None = None) -> Project:
+        with self._lock:
+            current_ver = self._versions.get(project.id, getattr(project, "version", 0))
+            if expected_version is not None and current_ver != expected_version:
+                raise ProjectStateError(f"Concurrency conflict: Project version mismatch (expected {expected_version}, got {current_ver}).")
+            new_ver = current_ver + 1
+            self._versions[project.id] = new_ver
+            project.version = new_ver
+            self._projects[project.id] = project
+            return project
 
     def get(self, project_id: UUID) -> Project:
-        try:
-            return self._projects[project_id]
-        except KeyError as exc:
-            raise ProjectNotFoundError(str(project_id)) from exc
+        with self._lock:
+            try:
+                p = self._projects[project_id]
+                p.version = self._versions.get(project_id, getattr(p, "version", 0))
+                return p
+            except KeyError as exc:
+                raise ProjectNotFoundError(str(project_id)) from exc
 
     def get_idempotency(self, key: str) -> IdempotencyRecord | None:
         return self._idempotency.get(key)
@@ -134,6 +148,7 @@ _shared_in_memory_repository: InMemoryProjectRepository | None = None
 class ProjectService:
     def __init__(self, repository: InMemoryProjectRepository | None = None) -> None:
         self.repository = repository or self._default_repository()
+        self._decide_lock = threading.Lock()
         provider = self._default_provider()
         self.fact_engine = FactEngine(checker=provider if hasattr(provider, "verify_claim") else None)
         self.story_architect = StoryArchitect(provider)
@@ -200,16 +215,16 @@ class ProjectService:
         self._audit("project.created", str(project.id), metadata={"duration_seconds": project.input.duration_seconds})
         return project
 
-    def create_idempotent(self, key: str, request_hash: str, project_input: ProjectInput) -> tuple[Project, bool]:
+    def create_idempotent(self, key: str, request_hash: str, project_input: ProjectInput, gemini_api_key: str | None = None, operation: str = "projects.create") -> tuple[Project, bool]:
         existing = getattr(self.repository, "get_idempotency", lambda _: None)(key)
         if existing is not None:
-            if existing.operation != "integration.projects.create" or existing.request_hash != request_hash:
+            if existing.request_hash != request_hash:
                 raise ProjectStateError("Idempotency key was reused with a different request payload.")
             return self.repository.get(UUID(existing.response["project_id"])), True
-        project = self.create(project_input)
+        project = self.create(project_input, gemini_api_key=gemini_api_key)
         record = IdempotencyRecord(
             key=key,
-            operation="integration.projects.create",
+            operation=operation,
             request_hash=request_hash,
             response={"project_id": str(project.id)},
             created_at=datetime.now(timezone.utc),
@@ -260,25 +275,32 @@ class ProjectService:
         self._audit("prompt.generated", str(project.id), metadata={"scene_number": next_number, "version": prompt.version_number})
         return prompt
 
-    def decide_prompt(self, project_id: UUID, scene_number: int, *, decision: str, actor: str, comment: str) -> Project:
-        project = self.repository.get(project_id)
-        if scene_number not in project.prompts:
-            raise ProjectStateError("Generate the prompt before requesting approval.")
-        if scene_number != project.current_scene_number:
-            raise ProjectStateError("Only the current prompt can be approved or rejected.")
-        if decision not in {"approved", "rejected"}:
-            raise ProjectStateError("Decision must be approved or rejected.")
-        if decision == "approved":
-            project.status = ProjectStatus.COMPLETED if scene_number == len(project.scenes) else ProjectStatus.APPROVED
-        else:
-            project.status = ProjectStatus.PROMPT_APPROVAL_PENDING
-        self.repository.save(project)
-        event_id = hashlib.sha256(f"{project.id}:{scene_number}:{decision}:{actor}:{datetime.now(timezone.utc).timestamp()}".encode()).hexdigest()[:24]
-        event = ApprovalEvent(event_id, str(project.id), scene_number, decision, actor, comment, datetime.now(timezone.utc))
-        if hasattr(self.repository, "save_approval_event"):
-            self.repository.save_approval_event(event)
-        self._audit(f"prompt.{decision}", str(project.id), metadata={"scene_number": scene_number, "actor": actor, "comment": comment})
-        return project
+    def decide_prompt(self, project_id: UUID, scene_number: int, *, decision: str, actor: str, comment: str, expected_version: int | None = None) -> Project:
+        with self._decide_lock:
+            project = self.repository.get(project_id)
+            current_version = getattr(project, "version", 0)
+            target_expected_version = expected_version if expected_version is not None else current_version
+            if expected_version is not None and current_version != expected_version:
+                raise ProjectStateError(f"Concurrency conflict: Project version mismatch (expected {expected_version}, got {current_version}).")
+            if project.status in {ProjectStatus.APPROVED, ProjectStatus.COMPLETED}:
+                raise ProjectStateError(f"Concurrency conflict: Prompt has already been decided (project is in state {project.status.value}).")
+            if scene_number not in project.prompts:
+                raise ProjectStateError("Generate the prompt before requesting approval.")
+            if scene_number != project.current_scene_number:
+                raise ProjectStateError("Only the current prompt can be approved or rejected.")
+            if decision not in {"approved", "rejected"}:
+                raise ProjectStateError("Decision must be approved or rejected.")
+            if decision == "approved":
+                project.status = ProjectStatus.COMPLETED if scene_number == len(project.scenes) else ProjectStatus.APPROVED
+            else:
+                project.status = ProjectStatus.PROMPT_APPROVAL_PENDING
+            self.repository.save(project, expected_version=target_expected_version)
+            event_id = hashlib.sha256(f"{project.id}:{scene_number}:{decision}:{actor}:{datetime.now(timezone.utc).timestamp()}".encode()).hexdigest()[:24]
+            event = ApprovalEvent(event_id, str(project.id), scene_number, decision, actor, comment, datetime.now(timezone.utc))
+            if hasattr(self.repository, "save_approval_event"):
+                self.repository.save_approval_event(event)
+            self._audit(f"prompt.{decision}", str(project.id), metadata={"scene_number": scene_number, "actor": actor, "comment": comment})
+            return project
 
     def verify_facts(self, project_id: UUID, job_id: str) -> FactVerificationJob:
         project = self.repository.get(project_id)

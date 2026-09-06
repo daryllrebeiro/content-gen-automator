@@ -143,10 +143,10 @@ def test_platform_export_download_security_hardening(monkeypatch):
     assert forbid_resp.status_code == 400
     assert "Forbidden" in forbid_resp.json()["detail"]
 
-    # 7. Non-existent project
+    # 7. Non-existent project -> 403 (enforces require_project_owner per Finding M-1 and N-3)
     non_existent_id = uuid4()
     not_found_resp = client.get(f"/api/projects/{non_existent_id}/platform-exports/tiktok/download/manifest.json")
-    assert not_found_resp.status_code == 404
+    assert not_found_resp.status_code == 403
 
     # 8. Access control test in production mode
     from app.config import Settings

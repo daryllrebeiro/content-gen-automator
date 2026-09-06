@@ -99,6 +99,7 @@ class ProjectResponse(BaseModel):
     model_tier: str = "flagship"
     platform_exports: dict[str, PlatformExportResponse] = Field(default_factory=dict)
     owner_token: str | None = None
+    version: int = 0
 
 
 

@@ -347,6 +347,7 @@ def _project_response(project, include_owner_token: bool = False) -> ProjectResp
             for k, v in getattr(project, "platform_exports", {}).items()
         },
         owner_token=getattr(project, "owner_token", None) if include_owner_token else None,
+        version=getattr(project, "version", 0),
     )
 
 
@@ -355,6 +356,7 @@ def _project_response(project, include_owner_token: bool = False) -> ProjectResp
 def create_project(
     request: ProjectCreateRequest,
     byok: ByokCredentials = Depends(get_byok_credentials),
+    idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
 ) -> ProjectResponse:
     target_platforms = [
         Platform(p) if isinstance(p, str) else p
@@ -363,6 +365,7 @@ def create_project(
 
     gemini_key = resolve_gemini_key(byok)
     user_byok_gemini = byok.gemini_api_key.strip() if byok.gemini_api_key else None
+    active_gemini_key = user_byok_gemini or (gemini_key if os.getenv("LLM_PROVIDER", "mock").lower() == "gemini" else None)
 
     # Enforce strict BYOK if explicitly configured
     if is_byok_enforced() and os.getenv("LLM_PROVIDER", "mock").lower() == "gemini" and not user_byok_gemini:
@@ -379,28 +382,43 @@ def create_project(
             }
         )
 
+    project_input = ProjectInput(
+        topic=request.topic,
+        facts=request.facts,
+        source_urls=request.source_urls,
+        language=request.language,
+        tone=request.tone,
+        audience=request.audience,
+        visual_preferences=request.visual_preferences,
+        duration_seconds=request.duration_seconds,
+        autonomous=request.autonomous,
+        tts_provider=request.tts_provider,
+        video_provider=request.video_provider,
+        stitch_provider=request.stitch_provider,
+        publish_provider=request.publish_provider,
+        token_budget=request.token_budget,
+        target_platforms=target_platforms,
+        model_tier=request.model_tier,
+    )
+
     try:
-        project = project_service.create(
-            ProjectInput(
-                topic=request.topic,
-                facts=request.facts,
-                source_urls=request.source_urls,
-                language=request.language,
-                tone=request.tone,
-                audience=request.audience,
-                visual_preferences=request.visual_preferences,
-                duration_seconds=request.duration_seconds,
-                autonomous=request.autonomous,
-                tts_provider=request.tts_provider,
-                video_provider=request.video_provider,
-                stitch_provider=request.stitch_provider,
-                publish_provider=request.publish_provider,
-                token_budget=request.token_budget,
-                target_platforms=target_platforms,
-                model_tier=request.model_tier,
-            ),
-            gemini_api_key=gemini_key,
-        )
+        if idempotency_key:
+            payload = request.model_dump(mode="json")
+            request_hash = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+            project, existed = project_service.create_idempotent(
+                idempotency_key,
+                request_hash,
+                project_input,
+                gemini_api_key=active_gemini_key,
+            )
+        else:
+            project = project_service.create(
+                project_input,
+                gemini_api_key=active_gemini_key,
+            )
+            existed = False
+    except ProjectStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ProviderFailure as exc:
         _handle_provider_failure(exc)
     except ValueError as exc:
@@ -944,6 +962,9 @@ def _integration_decide_prompt(project_id: UUID, scene_number: int, decision: st
     operation = f"integration.prompts.{decision}"
     if existing is not None and (existing.operation != operation or existing.request_hash != request_hash):
         raise HTTPException(status_code=409, detail="Idempotency key was reused with a different request.")
+    if existing is not None and existing.operation == operation and existing.request_hash == request_hash:
+        proj = project_service.repository.get(project_id)
+        return ApprovalResponse(project_id=proj.id, scene_number=scene_number, decision=decision, status=proj.status.value)
     try:
         project = project_service.decide_prompt(project_id, scene_number, decision=decision, actor=request.actor, comment=request.comment)
     except ProjectNotFoundError as exc:
@@ -1171,9 +1192,16 @@ def integration_production_callback(job_id: str, payload: dict) -> ProductionJob
     tags=["prompts"],
     dependencies=[Depends(require_project_owner)],
 )
-def public_approve_prompt(project_id: UUID, scene_number: int, request: ApprovalRequest) -> ApprovalResponse:
+def public_approve_prompt(
+    project_id: UUID,
+    scene_number: int,
+    request: ApprovalRequest,
+    x_expected_version: Optional[int] = Header(default=None, alias="X-Expected-Version"),
+) -> ApprovalResponse:
     try:
-        project = project_service.decide_prompt(project_id, scene_number, decision="approved", actor=request.actor, comment=request.comment)
+        current_proj = project_service.repository.get(project_id)
+        ver = x_expected_version if x_expected_version is not None else getattr(current_proj, "version", 0)
+        project = project_service.decide_prompt(project_id, scene_number, decision="approved", actor=request.actor, comment=request.comment, expected_version=ver)
     except ProjectNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Project not found") from exc
     except ProjectStateError as exc:
@@ -1188,9 +1216,16 @@ def public_approve_prompt(project_id: UUID, scene_number: int, request: Approval
     tags=["prompts"],
     dependencies=[Depends(require_project_owner)],
 )
-def public_reject_prompt(project_id: UUID, scene_number: int, request: ApprovalRequest) -> ApprovalResponse:
+def public_reject_prompt(
+    project_id: UUID,
+    scene_number: int,
+    request: ApprovalRequest,
+    x_expected_version: Optional[int] = Header(default=None, alias="X-Expected-Version"),
+) -> ApprovalResponse:
     try:
-        project = project_service.decide_prompt(project_id, scene_number, decision="rejected", actor=request.actor, comment=request.comment)
+        current_proj = project_service.repository.get(project_id)
+        ver = x_expected_version if x_expected_version is not None else getattr(current_proj, "version", 0)
+        project = project_service.decide_prompt(project_id, scene_number, decision="rejected", actor=request.actor, comment=request.comment, expected_version=ver)
     except ProjectNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Project not found") from exc
     except ProjectStateError as exc:
@@ -1578,9 +1613,9 @@ def public_submit_production(
         if project.status not in {project.status.APPROVED, project.status.COMPLETED}:
             raise ProjectStateError("Approve the prompt before submitting production.")
         
-        # Enterprise Cost-Ceiling Guardrail
+        # Enterprise Cost-Ceiling Guardrail with Atomic Reservation
         budget = getattr(project.input, "token_budget", 50000)
-        is_exceeded, consumed, limit = telemetry.is_cost_ceiling_exceeded(str(project_id), budget)
+        is_exceeded, consumed, limit = telemetry.is_cost_ceiling_exceeded(str(project_id), budget, reserve_tokens=100)
         if is_exceeded:
             raise HTTPException(
                 status_code=429,
@@ -1590,25 +1625,25 @@ def public_submit_production(
         video_key = resolve_video_provider_key(project.input.video_provider, byok)
         tts_key = byok.elevenlabs
 
-        if is_byok_enforced():
-            if project.input.video_provider in {"runway", "kling", "gemini_omni"} and not video_key:
-                raise HTTPException(
-                    status_code=400,
-                    detail={
-                        "error": "BYOK_KEY_REQUIRED",
-                        "provider": project.input.video_provider,
-                        "message": f"Rendering clips with {project.input.video_provider} requires your API key in Studio BYOK settings.",
-                    }
-                )
-            if project.input.tts_provider == "elevenlabs" and not tts_key:
-                raise HTTPException(
-                    status_code=400,
-                    detail={
-                        "error": "BYOK_KEY_REQUIRED",
-                        "provider": "elevenlabs",
-                        "message": "Generating voiceover with ElevenLabs requires your ElevenLabs API key in Studio BYOK settings.",
-                    }
-                )
+        # R-2: Reject upfront if requested provider lacks a valid API key (in enforced OR hybrid mode with mismatched key)
+        if (byok.has_any_keys() or is_byok_enforced()) and project.input.video_provider in {"runway", "kling", "gemini_omni"} and not video_key:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "BYOK_KEY_REQUIRED",
+                    "provider": project.input.video_provider,
+                    "message": f"Rendering clips with {project.input.video_provider} requires your API key in Studio BYOK settings.",
+                }
+            )
+        if (byok.has_any_keys() or is_byok_enforced()) and project.input.tts_provider == "elevenlabs" and not tts_key:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "BYOK_KEY_REQUIRED",
+                    "provider": "elevenlabs",
+                    "message": "Generating voiceover with ElevenLabs requires your ElevenLabs API key in Studio BYOK settings.",
+                }
+            )
 
         job = project_service.repository.get_production_job(existing.response["job_id"]) if existing is not None and hasattr(project_service.repository, "get_production_job") else None
         if job is None:
@@ -1918,14 +1953,15 @@ def get_project_platform_exports(project_id: UUID):
     }
 
 
-@router.get("/api/projects/{project_id}/platform-exports/{platform}/download/{file_name}", tags=["publishing"])
+@router.get(
+    "/api/projects/{project_id}/platform-exports/{platform}/download/{file_name}",
+    tags=["publishing"],
+    dependencies=[Depends(require_project_owner)],
+)
 def download_platform_export_file(
     project_id: UUID,
     platform: str,
     file_name: str,
-    authorization: Optional[str] = Header(default=None),
-    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
-    x_project_owner_token: Optional[str] = Header(default=None, alias="X-Project-Owner-Token"),
 ):
     import re
     from fastapi.responses import FileResponse
@@ -1937,27 +1973,6 @@ def download_platform_export_file(
     allowed_files = {"manifest.json", "captions.vtt", "post_copy.txt"}
     if not (file_name in allowed_files or file_name.endswith(".mp4")):
         raise HTTPException(status_code=400, detail="Forbidden file access requested.")
-
-    # 3. Project existence verification
-    try:
-        project = project_service.repository.get(project_id)
-    except ProjectNotFoundError as exc:
-        raise HTTPException(status_code=404, detail="Project not found") from exc
-
-    # 4. Access Control: verify project owner token or director integration credentials
-    is_authed = False
-    stored_owner = getattr(project, "owner_token", None)
-    if x_project_owner_token and stored_owner and hmac.compare_digest(x_project_owner_token, stored_owner):
-        is_authed = True
-    elif settings.integration_service_token:
-        expected_token = settings.integration_service_token
-        if authorization and hmac.compare_digest(authorization, f"Bearer {expected_token}"):
-            is_authed = True
-        elif x_api_key and hmac.compare_digest(x_api_key, expected_token):
-            is_authed = True
-
-    if not is_authed:
-        raise HTTPException(status_code=403, detail="Access denied: Valid owner or integration authorization required to download export package.")
 
     # 5. Resolve and verify filesystem path containment
     plat_normalized = platform.lower().replace("platform.", "")
