@@ -132,16 +132,20 @@ def test_cost_ceiling_enforcement_halts_production():
     # Create project with low token ceiling of 100 tokens
     res = client.post(
         "/api/projects",
-        json={"topic": "Deep Sea Science Mysteries", "duration_seconds": 10, "token_budget": 100},
+        json={"topic": "Deep Sea Science Mysteries", "duration_seconds": 10, "token_budget": 1000},
     )
     assert res.status_code == 200
     p_id = res.json()["id"]
 
-    # Generate prompt (generates ~400 tokens, which exceeds the 100 ceiling)
+    # 1. Generate prompt 1
     gen = client.post(f"/api/projects/{p_id}/generate")
     assert gen.status_code == 200
+
+    # 2. Record token usage to exceed the 1000 ceiling
+    from app.adapters.grafana_telemetry import telemetry
+    telemetry.record_prompt_generation(0.1, input_tokens=800, output_tokens=800, project_id=str(p_id))
     
-    # Approve prompt
+    # 3. Approve prompt
     appr = client.post(f"/api/projects/{p_id}/prompts/1/approve", json={"decision": "APPROVE", "actor": "director"})
     assert appr.status_code == 200
 

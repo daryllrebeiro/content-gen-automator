@@ -40,6 +40,8 @@ import {
   fetchPlatformExports,
   ByokKeys,
   getStoredByokKeys,
+  saveStoredByokKeys,
+  verifyByokKey,
 } from "../lib/api";
 import StatusTracker from "../components/StatusTracker";
 import PartnerEcosystemBar from "../components/PartnerEcosystemBar";
@@ -174,10 +176,19 @@ export default function HomePage() {
   const [activeCertificate, setActiveCertificate] = useState<any>(null);
   const [showByokModal, setShowByokModal] = useState(false);
   const [byokKeys, setByokKeys] = useState<ByokKeys>({});
+  const [landingKey, setLandingKey] = useState("");
+  const [showLandingKey, setShowLandingKey] = useState(false);
+  const [landingVerifyStatus, setLandingVerifyStatus] = useState<{ valid?: boolean; message?: string } | null>(null);
+  const [verifyingLandingKey, setVerifyingLandingKey] = useState(false);
+  const [landingSuccessMsg, setLandingSuccessMsg] = useState<string | null>(null);
+  const [isEditingLandingKey, setIsEditingLandingKey] = useState(false);
 
   const refreshByok = () => {
     const stored = getStoredByokKeys();
     setByokKeys(stored);
+    if (stored.gemini) {
+      setLandingKey(stored.gemini);
+    }
     fetchVideoProviders().then(setVideoCatalog).catch(() => {});
   };
 
@@ -189,6 +200,49 @@ export default function HomePage() {
   }, []);
 
   const hasGeminiKey = Boolean(byokKeys.gemini && byokKeys.gemini.trim() && !byokKeys.gemini.startsWith("mock_"));
+
+  const handleSaveLandingKey = (keyVal?: string) => {
+    const targetKey = (keyVal !== undefined ? keyVal : landingKey).trim();
+    if (!targetKey) {
+      setLandingVerifyStatus({ valid: false, message: "Please enter your Gemini API key first." });
+      return;
+    }
+    saveStoredByokKeys({ ...byokKeys, gemini: targetKey });
+    setLandingSuccessMsg("✓ Gemini API Key connected securely! Zero-retention client mode active.");
+    setIsEditingLandingKey(false);
+    setLandingVerifyStatus(null);
+    setTimeout(() => setLandingSuccessMsg(null), 3500);
+  };
+
+  const handleVerifyLandingKey = async () => {
+    const targetKey = (landingKey || byokKeys.gemini || "").trim();
+    if (!targetKey) {
+      setLandingVerifyStatus({ valid: false, message: "Please enter your Gemini API key to test." });
+      return;
+    }
+    setVerifyingLandingKey(true);
+    setLandingVerifyStatus(null);
+    try {
+      const res = await verifyByokKey("gemini", targetKey);
+      setLandingVerifyStatus(res);
+    } catch (err: any) {
+      setLandingVerifyStatus({
+        valid: false,
+        message: err?.message || "Verification failed. Please check your Gemini API key.",
+      });
+    } finally {
+      setVerifyingLandingKey(false);
+    }
+  };
+
+  const handleRemoveLandingKey = () => {
+    saveStoredByokKeys({ ...byokKeys, gemini: "" });
+    setLandingKey("");
+    setLandingVerifyStatus(null);
+    setIsEditingLandingKey(false);
+    setLandingSuccessMsg("Gemini API key disconnected from browser storage.");
+    setTimeout(() => setLandingSuccessMsg(null), 2500);
+  };
   const [rejectComment, setRejectComment] = useState<Record<number, string>>({});
   const [activeStage, setActiveStage] = useState(STAGES.PROMPTS);
 
@@ -696,6 +750,344 @@ export default function HomePage() {
             Plan, generate, render, review, and auto-publish content with complete database audit gates.
           </p>
         </section>
+
+        {/* ── Landing API Key Input with Zero-Retention Guarantee ── */}
+        <section
+          style={{
+            maxWidth: "760px",
+            margin: "0 0 24px 0",
+            padding: "24px 28px",
+            background: hasGeminiKey && !isEditingLandingKey
+              ? "linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(10, 30, 20, 0.5) 100%)"
+              : "linear-gradient(135deg, rgba(139, 92, 246, 0.08) 0%, rgba(20, 20, 35, 0.6) 100%)",
+            border: hasGeminiKey && !isEditingLandingKey
+              ? "1px solid rgba(16, 185, 129, 0.35)"
+              : "1px solid rgba(139, 92, 246, 0.3)",
+            borderRadius: "18px",
+            backdropFilter: "blur(24px)",
+            WebkitBackdropFilter: "blur(24px)",
+            boxShadow: hasGeminiKey && !isEditingLandingKey
+              ? "0 8px 32px rgba(16, 185, 129, 0.12)"
+              : "0 8px 32px rgba(139, 92, 246, 0.12)",
+            position: "relative"
+          }}
+        >
+          {/* Header Row */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "16px", marginBottom: "14px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <span style={{ fontSize: "22px" }}>🔑</span>
+              <div>
+                <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "#fff", display: "flex", alignItems: "center", gap: "8px" }}>
+                  Google Gemini API Key
+                  {hasGeminiKey ? (
+                    <span style={{ fontSize: "11px", fontWeight: 600, padding: "2px 8px", borderRadius: "12px", background: "rgba(16, 185, 129, 0.2)", color: "#10b981", border: "1px solid rgba(16, 185, 129, 0.4)" }}>
+                      🟢 Connected
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: "11px", fontWeight: 600, padding: "2px 8px", borderRadius: "12px", background: "rgba(245, 158, 11, 0.15)", color: "#f59e0b", border: "1px solid rgba(245, 158, 11, 0.3)" }}>
+                      🟡 Ready to Connect
+                    </span>
+                  )}
+                </h3>
+                <p style={{ margin: "2px 0 0", fontSize: "13px", color: "var(--muted)" }}>
+                  {hasGeminiKey && !isEditingLandingKey
+                    ? "Your browser is securely authenticated for real AI scriptwriting and scene planning."
+                    : "Enter your Gemini API key to activate live AI generation, or leave blank to test with simulated/mock fallback."}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowByokModal(true)}
+              style={{
+                fontSize: "12px",
+                fontWeight: 600,
+                color: "var(--muted)",
+                background: "rgba(255, 255, 255, 0.05)",
+                border: "1px solid rgba(255, 255, 255, 0.1)",
+                borderRadius: "6px",
+                padding: "5px 12px",
+                whiteSpace: "nowrap",
+                cursor: "pointer"
+              }}
+            >
+              All Provider Keys ↗
+            </button>
+          </div>
+
+          {/* Strict Zero-Retention Privacy Guarantee Box */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: "12px",
+              padding: "12px 14px",
+              background: "rgba(0, 0, 0, 0.35)",
+              border: "1px solid rgba(16, 185, 129, 0.25)",
+              borderRadius: "10px",
+              marginBottom: "16px"
+            }}
+          >
+            <span style={{ fontSize: "18px", marginTop: "1px" }}>🛡</span>
+            <div style={{ fontSize: "12px", lineHeight: "1.5" }}>
+              <div style={{ fontWeight: 700, color: "#10b981", letterSpacing: "0.02em", marginBottom: "2px", display: "flex", alignItems: "center", gap: "6px" }}>
+                <span>ZERO-RETENTION PRIVACY GUARANTEE</span>
+                <span style={{ fontSize: "10px", background: "rgba(16, 185, 129, 0.15)", padding: "1px 6px", borderRadius: "4px", border: "1px solid rgba(16, 185, 129, 0.3)" }}>STRICT CLIENT ISOLATION</span>
+              </div>
+              <div style={{ color: "#e2e8f0" }}>
+                We will <strong style={{ color: "#38bdf8" }}>NOT READ</strong>, <strong style={{ color: "#38bdf8" }}>NOT STORE</strong> on our servers or databases, and <strong style={{ color: "#38bdf8" }}>NOT LOG</strong> your API key.
+                Your key remains strictly in your local browser storage and is transmitted over encrypted HTTPS <strong style={{ color: "#10b981" }}>ONLY for direct API calls to Google Gemini</strong>.
+              </div>
+            </div>
+          </div>
+
+          {/* If Connected and not in edit mode */}
+          {hasGeminiKey && !isEditingLandingKey ? (
+            <div>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  flexWrap: "wrap",
+                  gap: "12px",
+                  padding: "10px 14px",
+                  background: "rgba(0, 0, 0, 0.25)",
+                  borderRadius: "8px",
+                  border: "1px solid rgba(16, 185, 129, 0.2)"
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  <code style={{ fontSize: "13px", color: "#10b981", background: "rgba(16, 185, 129, 0.1)", padding: "3px 8px", borderRadius: "4px", letterSpacing: "0.05em" }}>
+                    {byokKeys.gemini && byokKeys.gemini.length > 10
+                      ? `${byokKeys.gemini.slice(0, 6)}••••••••${byokKeys.gemini.slice(-4)}`
+                      : "••••••••••••"}
+                  </code>
+                  <span style={{ fontSize: "12px", color: "var(--muted)" }}>
+                    Active in browser session
+                  </span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <button
+                    type="button"
+                    onClick={handleVerifyLandingKey}
+                    disabled={verifyingLandingKey}
+                    style={{
+                      fontSize: "12px",
+                      fontWeight: 600,
+                      padding: "5px 12px",
+                      borderRadius: "6px",
+                      background: "rgba(255, 255, 255, 0.08)",
+                      border: "1px solid rgba(255, 255, 255, 0.15)",
+                      color: "#fff",
+                      cursor: verifyingLandingKey ? "wait" : "pointer"
+                    }}
+                  >
+                    {verifyingLandingKey ? "Testing..." : "⚡ Test Key"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLandingKey(byokKeys.gemini || "");
+                      setIsEditingLandingKey(true);
+                      setLandingVerifyStatus(null);
+                    }}
+                    style={{
+                      fontSize: "12px",
+                      fontWeight: 600,
+                      padding: "5px 12px",
+                      borderRadius: "6px",
+                      background: "rgba(255, 255, 255, 0.08)",
+                      border: "1px solid rgba(255, 255, 255, 0.15)",
+                      color: "#fff",
+                      cursor: "pointer"
+                    }}
+                  >
+                    ✏ Change
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRemoveLandingKey}
+                    style={{
+                      fontSize: "12px",
+                      fontWeight: 600,
+                      padding: "5px 12px",
+                      borderRadius: "6px",
+                      background: "rgba(239, 68, 68, 0.1)",
+                      border: "1px solid rgba(239, 68, 68, 0.25)",
+                      color: "#ef4444",
+                      cursor: "pointer"
+                    }}
+                  >
+                    Disconnect
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* Input / Edit Mode */
+            <div>
+              <div style={{ display: "flex", gap: "10px", alignItems: "stretch", flexWrap: "wrap" }}>
+                <div style={{ position: "relative", flex: "1 1 320px" }}>
+                  <input
+                    type={showLandingKey ? "text" : "password"}
+                    value={landingKey}
+                    onChange={(e) => {
+                      setLandingKey(e.target.value);
+                      setLandingVerifyStatus(null);
+                      setLandingSuccessMsg(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleSaveLandingKey();
+                      }
+                    }}
+                    placeholder="AIzaSy... (Paste Google Gemini API Key)"
+                    style={{
+                      width: "100%",
+                      margin: 0,
+                      padding: "12px 42px 12px 14px",
+                      fontSize: "14px",
+                      background: "rgba(0, 0, 0, 0.45)",
+                      border: "1px solid rgba(255, 255, 255, 0.2)",
+                      borderRadius: "8px",
+                      color: "#fff",
+                      fontFamily: showLandingKey ? "monospace" : "inherit"
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowLandingKey(!showLandingKey)}
+                    style={{
+                      position: "absolute",
+                      right: "10px",
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      background: "transparent",
+                      border: "none",
+                      color: "var(--muted)",
+                      cursor: "pointer",
+                      fontSize: "14px",
+                      padding: "4px"
+                    }}
+                    title={showLandingKey ? "Hide key" : "Show key"}
+                  >
+                    {showLandingKey ? "🙈" : "👁"}
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleSaveLandingKey()}
+                  style={{
+                    padding: "10px 18px",
+                    background: "#10b981",
+                    color: "#000",
+                    fontWeight: 700,
+                    fontSize: "13px",
+                    borderRadius: "8px",
+                    border: "none",
+                    cursor: "pointer",
+                    boxShadow: "0 0 16px rgba(16, 185, 129, 0.35)",
+                    whiteSpace: "nowrap"
+                  }}
+                >
+                  ⚡ Connect Key
+                </button>
+                <button
+                  type="button"
+                  onClick={handleVerifyLandingKey}
+                  disabled={verifyingLandingKey}
+                  style={{
+                    padding: "10px 16px",
+                    background: "rgba(255, 255, 255, 0.08)",
+                    border: "1px solid rgba(255, 255, 255, 0.2)",
+                    borderRadius: "8px",
+                    color: "#fff",
+                    fontWeight: 600,
+                    fontSize: "13px",
+                    cursor: verifyingLandingKey ? "wait" : "pointer",
+                    whiteSpace: "nowrap"
+                  }}
+                >
+                  {verifyingLandingKey ? "Testing..." : "✓ Test Key"}
+                </button>
+                {isEditingLandingKey && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsEditingLandingKey(false);
+                      setLandingKey(byokKeys.gemini || "");
+                      setLandingVerifyStatus(null);
+                    }}
+                    style={{
+                      padding: "10px 14px",
+                      background: "transparent",
+                      border: "1px solid rgba(255, 255, 255, 0.15)",
+                      borderRadius: "8px",
+                      color: "var(--muted)",
+                      fontSize: "13px",
+                      cursor: "pointer"
+                    }}
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "10px", flexWrap: "wrap", gap: "8px" }}>
+                <a
+                  href="https://aistudio.google.com/app/apikey"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ fontSize: "12px", color: "var(--accent-secondary)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "4px" }}
+                >
+                  Get a free Gemini API key from Google AI Studio ↗
+                </a>
+                <span style={{ fontSize: "11px", color: "var(--muted)" }}>
+                  Key format: AIzaSy... (39 characters)
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Success Feedback */}
+          {landingSuccessMsg && (
+            <div
+              style={{
+                marginTop: "12px",
+                padding: "8px 12px",
+                background: "rgba(16, 185, 129, 0.15)",
+                border: "1px solid rgba(16, 185, 129, 0.4)",
+                borderRadius: "6px",
+                fontSize: "12px",
+                color: "#10b981",
+                fontWeight: 600
+              }}
+            >
+              {landingSuccessMsg}
+            </div>
+          )}
+
+          {/* Verification Status Feedback */}
+          {landingVerifyStatus && (
+            <div
+              style={{
+                marginTop: "12px",
+                padding: "8px 12px",
+                background: landingVerifyStatus.valid ? "rgba(16, 185, 129, 0.15)" : "rgba(239, 68, 68, 0.15)",
+                border: landingVerifyStatus.valid ? "1px solid rgba(16, 185, 129, 0.4)" : "1px solid rgba(239, 68, 68, 0.4)",
+                borderRadius: "6px",
+                fontSize: "12px",
+                color: landingVerifyStatus.valid ? "#10b981" : "#fca5a5",
+                fontWeight: 600
+              }}
+            >
+              {landingVerifyStatus.valid ? "✓ " : "✕ "}
+              {landingVerifyStatus.message}
+            </div>
+          )}
+        </section>
+
         <form className="form-card" onSubmit={startProject}>
           {/* Preset Quick-Launch Bar for Judges (Tier 2.1 / Feature 5) */}
           <div style={{

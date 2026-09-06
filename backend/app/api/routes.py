@@ -1,13 +1,16 @@
 from uuid import UUID, uuid4
 import os
 import hashlib
+import hmac
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, BackgroundTasks, Response, Request
 import time
 
+from app.providers.reliability import ProviderFailure
 from app.schemas.health import HealthResponse, ReadinessResponse
 from app.config import settings
 from app.schemas.projects import (
@@ -52,6 +55,7 @@ from app.services.project_service import (
 )
 from app.services.export_service import ExportService
 from app.api.integration_auth import require_integration_auth
+from app.api.project_auth import require_project_owner
 from app.services.delivery_service import DeliveryService
 from app.services.production_service import ProductionService
 from app.services.publishing_gate_service import PublishingGateService
@@ -81,6 +85,40 @@ delivery_service = DeliveryService()
 production_service = ProductionService()
 publishing_gate_service = PublishingGateService()
 youtube_metadata_validator = YouTubeMetadataValidator()
+logger = logging.getLogger(__name__)
+
+
+def _handle_provider_failure(exc: Exception, provider: str = "gemini") -> None:
+    err_msg = str(exc)
+    if any(k in err_msg for k in ("API_KEY_INVALID", "API key not valid", "Neither GEMINI_API_KEY", "No API key was provided", "INVALID_ARGUMENT", "PERMISSION_DENIED")):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "BYOK_KEY_REQUIRED",
+                "provider": provider,
+                "message": f"The {provider.title()} API key is missing, invalid, or unauthorized. Please configure a valid key in '🔑 API Keys' in the top bar.",
+                "action_url": "https://aistudio.google.com/apikey"
+            }
+        ) from exc
+    elif any(k in err_msg for k in ("RESOURCE_EXHAUSTED", "429", "quota")):
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": "PROVIDER_QUOTA_EXCEEDED",
+                "provider": provider,
+                "message": f"{provider.title()} rate limit or quota exceeded. Please configure your personal API key in '🔑 API Keys' or wait a few moments.",
+                "action_url": "https://aistudio.google.com/apikey"
+            }
+        ) from exc
+    else:
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "error": "PROVIDER_FAILURE",
+                "provider": provider,
+                "message": f"{provider.title()} generation failed: {str(exc)}"
+            }
+        ) from exc
 
 
 def run_production_pipeline_async(
@@ -261,7 +299,7 @@ def _prompt_response(prompt) -> PromptResponse:
     )
 
 
-def _project_response(project) -> ProjectResponse:
+def _project_response(project, include_owner_token: bool = False) -> ProjectResponse:
     return ProjectResponse(
         id=project.id,
         status=project.status.value,
@@ -308,44 +346,80 @@ def _project_response(project) -> ProjectResponse:
             )
             for k, v in getattr(project, "platform_exports", {}).items()
         },
+        owner_token=getattr(project, "owner_token", None) if include_owner_token else None,
     )
 
 
 
 @router.post("/api/projects", response_model=ProjectResponse, tags=["projects"])
-def create_project(request: ProjectCreateRequest) -> ProjectResponse:
+def create_project(
+    request: ProjectCreateRequest,
+    byok: ByokCredentials = Depends(get_byok_credentials),
+) -> ProjectResponse:
     target_platforms = [
         Platform(p) if isinstance(p, str) else p
         for p in request.target_platforms
     ] if request.target_platforms else [Platform.YOUTUBE_SHORTS]
 
-    project = project_service.create(
-        ProjectInput(
-            topic=request.topic,
-            facts=request.facts,
-            source_urls=request.source_urls,
-            language=request.language,
-            tone=request.tone,
-            audience=request.audience,
-            visual_preferences=request.visual_preferences,
-            duration_seconds=request.duration_seconds,
-            autonomous=request.autonomous,
-            tts_provider=request.tts_provider,
-            video_provider=request.video_provider,
-            stitch_provider=request.stitch_provider,
-            publish_provider=request.publish_provider,
-            token_budget=request.token_budget,
-            target_platforms=target_platforms,
-            model_tier=request.model_tier,
+    gemini_key = resolve_gemini_key(byok)
+    user_byok_gemini = byok.gemini_api_key.strip() if byok.gemini_api_key else None
+
+    # Enforce strict BYOK if explicitly configured
+    if is_byok_enforced() and os.getenv("LLM_PROVIDER", "mock").lower() == "gemini" and not user_byok_gemini:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "BYOK_KEY_REQUIRED",
+                "provider": "gemini",
+                "message": (
+                    "Generating content with Google Gemini requires your Gemini API key in Studio BYOK settings. "
+                    "Click '🔑 API Keys' in the top bar to configure your key, or run in Simulated Studio (Mock) mode."
+                ),
+                "action_url": "https://aistudio.google.com/apikey"
+            }
         )
-    )
+
+    try:
+        project = project_service.create(
+            ProjectInput(
+                topic=request.topic,
+                facts=request.facts,
+                source_urls=request.source_urls,
+                language=request.language,
+                tone=request.tone,
+                audience=request.audience,
+                visual_preferences=request.visual_preferences,
+                duration_seconds=request.duration_seconds,
+                autonomous=request.autonomous,
+                tts_provider=request.tts_provider,
+                video_provider=request.video_provider,
+                stitch_provider=request.stitch_provider,
+                publish_provider=request.publish_provider,
+                token_budget=request.token_budget,
+                target_platforms=target_platforms,
+                model_tier=request.model_tier,
+            ),
+            gemini_api_key=gemini_key,
+        )
+    except ProviderFailure as exc:
+        _handle_provider_failure(exc)
+    except ValueError as exc:
+        if "API key" in str(exc):
+            _handle_provider_failure(exc)
+        raise
+
     # Partner Integrations: Grafana Observability + ClickHouse Analytics
     telemetry.record_project_created(request.topic)
     clickhouse_analytics.log_event("project_created", str(project.id), {"topic": request.topic, "tone": request.tone})
-    return _project_response(project)
+    return _project_response(project, include_owner_token=True)
 
 
-@router.get("/api/projects/{project_id}", response_model=ProjectResponse, tags=["projects"])
+@router.get(
+    "/api/projects/{project_id}",
+    response_model=ProjectResponse,
+    tags=["projects"],
+    dependencies=[Depends(require_project_owner)],
+)
 def get_project(project_id: UUID) -> ProjectResponse:
     try:
         return _project_response(project_service.repository.get(project_id))
@@ -357,6 +431,7 @@ def get_project(project_id: UUID) -> ProjectResponse:
     "/api/projects/{project_id}/generate",
     response_model=PromptResponse,
     tags=["prompts"],
+    dependencies=[Depends(require_project_owner)],
 )
 def generate_first_prompt(
     project_id: UUID,
@@ -415,16 +490,19 @@ def generate_first_prompt(
             )
 
         # 1. Coordinate reasoning via ADK Multi-Agent Orchestrator
-        agent_trace = orchestrator_agent.orchestrate_scene_generation(
-            project_id=str(project_id),
-            topic=project.input.topic,
-            scene_number=current_scene_idx,
-            total_scenes=len(project.scenes),
-            tone=project.input.tone or "cinematic",
-            facts=project.input.facts or [],
-            model_tier=model_tier,
-            gemini_api_key=gemini_key,
-        )
+        try:
+            agent_trace = orchestrator_agent.orchestrate_scene_generation(
+                project_id=str(project_id),
+                topic=project.input.topic,
+                scene_number=current_scene_idx,
+                total_scenes=len(project.scenes),
+                tone=project.input.tone or "cinematic",
+                facts=project.input.facts or [],
+                model_tier=model_tier,
+                gemini_api_key=gemini_key,
+            )
+        except Exception as orchestrator_exc:
+            logger.warning("ADK orchestrator trace notice: %s", orchestrator_exc)
 
         # 2. Advance Domain FSM & Generate Prompt
         prompt = project_service.generate_next(project_id, gemini_api_key=gemini_key)
@@ -460,12 +538,19 @@ def generate_first_prompt(
         raise HTTPException(status_code=404, detail="Project not found") from exc
     except ProjectStateError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ProviderFailure as exc:
+        _handle_provider_failure(exc)
+    except ValueError as exc:
+        if "API key" in str(exc):
+            _handle_provider_failure(exc)
+        raise
 
 
 @router.post(
     "/api/projects/{project_id}/prompts/next",
     response_model=PromptResponse,
     tags=["prompts"],
+    dependencies=[Depends(require_project_owner)],
 )
 def generate_next_prompt(
     project_id: UUID,
@@ -478,6 +563,7 @@ def generate_next_prompt(
     "/api/projects/{project_id}/prompts/{scene_number}/regenerate",
     response_model=PromptResponse,
     tags=["prompts"],
+    dependencies=[Depends(require_project_owner)],
 )
 def regenerate_prompt(
     project_id: UUID,
@@ -572,11 +658,18 @@ def regenerate_prompt(
         raise HTTPException(status_code=404, detail="Project not found") from exc
     except ProjectStateError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ProviderFailure as exc:
+        _handle_provider_failure(exc)
+    except ValueError as exc:
+        if "API key" in str(exc):
+            _handle_provider_failure(exc)
+        raise
 
 
 @router.get(
     "/api/projects/{project_id}/compliance-certificate",
     tags=["governance"],
+    dependencies=[Depends(require_project_owner)],
 )
 def get_project_compliance_certificate(project_id: UUID):
     try:
@@ -603,6 +696,7 @@ def get_project_compliance_certificate(project_id: UUID):
 @router.get(
     "/api/projects/{project_id}/compliance-certificate/download",
     tags=["governance"],
+    dependencies=[Depends(require_project_owner)],
 )
 def download_project_compliance_certificate(project_id: UUID):
     """Downloads the signed Compliance Certificate as a formatted JSON document."""
@@ -679,6 +773,7 @@ def governance_advisory_check(payload: Dict[str, Any]):
 @router.get(
     "/api/telemetry/budget-status/{project_id}",
     tags=["telemetry"],
+    dependencies=[Depends(require_project_owner)],
 )
 def get_project_budget_status(project_id: UUID):
     """Returns token consumption, budget ceiling, and remaining headroom for FinOps monitoring."""
@@ -704,6 +799,7 @@ def get_project_budget_status(project_id: UUID):
     "/api/projects/{project_id}/export",
     response_model=ExportResponse,
     tags=["export"],
+    dependencies=[Depends(require_project_owner)],
 )
 def export_project(project_id: UUID) -> ExportResponse:
     try:
@@ -723,6 +819,7 @@ def export_project(project_id: UUID) -> ExportResponse:
     "/api/projects/{project_id}/exports/manifest",
     response_model=ExportManifestResponse,
     tags=["export"],
+    dependencies=[Depends(require_project_owner)],
 )
 def public_create_export_manifest(project_id: UUID) -> ExportManifestResponse:
     try:
@@ -1072,6 +1169,7 @@ def integration_production_callback(job_id: str, payload: dict) -> ProductionJob
     "/api/projects/{project_id}/prompts/{scene_number}/approve",
     response_model=ApprovalResponse,
     tags=["prompts"],
+    dependencies=[Depends(require_project_owner)],
 )
 def public_approve_prompt(project_id: UUID, scene_number: int, request: ApprovalRequest) -> ApprovalResponse:
     try:
@@ -1088,6 +1186,7 @@ def public_approve_prompt(project_id: UUID, scene_number: int, request: Approval
     "/api/projects/{project_id}/prompts/{scene_number}/reject",
     response_model=ApprovalResponse,
     tags=["prompts"],
+    dependencies=[Depends(require_project_owner)],
 )
 def public_reject_prompt(project_id: UUID, scene_number: int, request: ApprovalRequest) -> ApprovalResponse:
     try:
@@ -1458,6 +1557,7 @@ def integration_validate_metadata(project_id: UUID) -> MetadataValidationRespons
     "/api/projects/{project_id}/scenes/{scene_number}/production",
     response_model=ProductionJobResponse,
     tags=["production"],
+    dependencies=[Depends(require_project_owner)],
 )
 def public_submit_production(
     project_id: UUID,
@@ -1542,8 +1642,11 @@ def public_submit_production(
     "/api/projects/{project_id}/production-jobs/{job_id}/mock-complete",
     response_model=ProductionJobResponse,
     tags=["production"],
+    dependencies=[Depends(require_project_owner)],
 )
 def public_mock_complete_production(project_id: UUID, job_id: str) -> ProductionJobResponse:
+    if settings.app_env == "production":
+        raise HTTPException(status_code=404, detail="Not Found")
     job = getattr(project_service.repository, "get_production_job", lambda _: None)(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Production job not found")
@@ -1567,6 +1670,7 @@ def public_mock_complete_production(project_id: UUID, job_id: str) -> Production
     "/api/projects/{project_id}/production-jobs",
     response_model=list[ProductionJobResponse],
     tags=["production"],
+    dependencies=[Depends(require_project_owner)],
 )
 def public_get_production_jobs(project_id: UUID) -> list[ProductionJobResponse]:
     try:
@@ -1597,6 +1701,7 @@ def public_get_production_jobs(project_id: UUID) -> list[ProductionJobResponse]:
 @router.get(
     "/api/projects/{project_id}/clips",
     tags=["production"],
+    dependencies=[Depends(require_project_owner)],
 )
 def public_get_clips(project_id: UUID):
     try:
@@ -1630,6 +1735,7 @@ def public_get_clips(project_id: UUID):
     "/api/projects/{project_id}/clips/{scene_number}/review",
     response_model=ClipReviewResponse,
     tags=["publishing"],
+    dependencies=[Depends(require_project_owner)],
 )
 def public_review_clip(project_id: UUID, scene_number: int, request: ClipReviewRequest) -> ClipReviewResponse:
     # Proxies to the integration clip review logic
@@ -1640,6 +1746,7 @@ def public_review_clip(project_id: UUID, scene_number: int, request: ClipReviewR
     "/api/projects/{project_id}/final-review",
     response_model=FinalReviewStatusResponse,
     tags=["publishing"],
+    dependencies=[Depends(require_project_owner)],
 )
 def public_get_final_review(project_id: UUID) -> FinalReviewStatusResponse:
     return integration_get_final_review(project_id)
@@ -1649,6 +1756,7 @@ def public_get_final_review(project_id: UUID) -> FinalReviewStatusResponse:
     "/api/projects/{project_id}/final-review/approve",
     response_model=FinalReviewResponse,
     tags=["publishing"],
+    dependencies=[Depends(require_project_owner)],
 )
 def public_approve_final(project_id: UUID, request: FinalReviewRequest) -> FinalReviewResponse:
     return _submit_final_review(project_id, "approved", request, request_id=None)
@@ -1658,6 +1766,7 @@ def public_approve_final(project_id: UUID, request: FinalReviewRequest) -> Final
     "/api/projects/{project_id}/final-review/reject",
     response_model=FinalReviewResponse,
     tags=["publishing"],
+    dependencies=[Depends(require_project_owner)],
 )
 def public_reject_final(project_id: UUID, request: FinalReviewRequest) -> FinalReviewResponse:
     return _submit_final_review(project_id, "rejected", request, request_id=None)
@@ -1667,6 +1776,7 @@ def public_reject_final(project_id: UUID, request: FinalReviewRequest) -> FinalR
     "/api/projects/{project_id}/publish/gate",
     response_model=GateReportResponse,
     tags=["publishing"],
+    dependencies=[Depends(require_project_owner)],
 )
 def public_gate_check(project_id: UUID) -> GateReportResponse:
     return integration_gate_check(project_id)
@@ -1676,6 +1786,7 @@ def public_gate_check(project_id: UUID) -> GateReportResponse:
     "/api/projects/{project_id}/publish",
     response_model=PublishResponse,
     tags=["publishing"],
+    dependencies=[Depends(require_project_owner)],
 )
 def public_publish(project_id: UUID, request: PublishRequest, background_tasks: BackgroundTasks) -> PublishResponse:
     return integration_publish(project_id, request, background_tasks, request_id=None)
@@ -1684,6 +1795,7 @@ def public_publish(project_id: UUID, request: PublishRequest, background_tasks: 
 @router.get(
     "/api/projects/{project_id}/youtube-upload-jobs",
     tags=["publishing"],
+    dependencies=[Depends(require_project_owner)],
 )
 def public_get_youtube_upload_jobs(project_id: UUID):
     try:
@@ -1712,8 +1824,11 @@ def public_get_youtube_upload_jobs(project_id: UUID):
     "/api/projects/{project_id}/youtube-upload-jobs/{job_id}/mock-complete",
     response_model=YouTubeUploadJobResponse,
     tags=["publishing"],
+    dependencies=[Depends(require_project_owner)],
 )
 def public_mock_complete_youtube_upload(project_id: UUID, job_id: str, success: bool = True) -> YouTubeUploadJobResponse:
+    if settings.app_env == "production":
+        raise HTTPException(status_code=404, detail="Not Found")
     payload = {
         "status": "PUBLISHED" if success else "FAILED_PERMANENT",
         "youtube_video_id": f"yt-{uuid4().hex[:8]}" if success else "",
@@ -1778,7 +1893,11 @@ def create_studio_preset(data: Dict[str, Any]):
     return created.__dict__
 
 
-@router.get("/api/projects/{project_id}/platform-exports", tags=["publishing"])
+@router.get(
+    "/api/projects/{project_id}/platform-exports",
+    tags=["publishing"],
+    dependencies=[Depends(require_project_owner)],
+)
 def get_project_platform_exports(project_id: UUID):
     try:
         project = project_service.repository.get(project_id)
@@ -1806,6 +1925,7 @@ def download_platform_export_file(
     file_name: str,
     authorization: Optional[str] = Header(default=None),
     x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
+    x_project_owner_token: Optional[str] = Header(default=None, alias="X-Project-Owner-Token"),
 ):
     import re
     from fastapi.responses import FileResponse
@@ -1824,18 +1944,22 @@ def download_platform_export_file(
     except ProjectNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Project not found") from exc
 
-    # 4. Access Control: verify director credentials in production or when integration token configured
-    if settings.app_env == "production" or settings.integration_service_token:
+    # 4. Access Control: verify project owner token or director integration credentials
+    is_authed = False
+    stored_owner = getattr(project, "owner_token", None)
+    if x_project_owner_token and stored_owner and hmac.compare_digest(x_project_owner_token, stored_owner):
+        is_authed = True
+    elif settings.integration_service_token:
         expected_token = settings.integration_service_token
-        is_authed = False
-        if expected_token:
-            if authorization == f"Bearer {expected_token}" or x_api_key == expected_token:
-                is_authed = True
-        elif settings.app_env != "production":
+        if authorization and hmac.compare_digest(authorization, f"Bearer {expected_token}"):
             is_authed = True
+        elif x_api_key and hmac.compare_digest(x_api_key, expected_token):
+            is_authed = True
+    elif settings.app_env != "production":
+        is_authed = True
 
-        if not is_authed:
-            raise HTTPException(status_code=403, detail="Access denied: Valid Director authorization required to download export package.")
+    if not is_authed:
+        raise HTTPException(status_code=403, detail="Access denied: Valid owner or integration authorization required to download export package.")
 
     # 5. Resolve and verify filesystem path containment
     plat_normalized = platform.lower().replace("platform.", "")

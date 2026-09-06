@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import os
 import json
+from uuid import UUID
 from typing import Dict, Any, List
 
 from app.api.byok import ByokCredentials, get_byok_credentials
@@ -17,6 +18,10 @@ from app.services.policy_pack_service import policy_pack_service, GovernancePoli
 from app.services.compliance_certificate_service import compliance_certificate_service
 from app.services.localization_service import localization_service
 from app.services.brand_kit_service import brand_kit_service
+
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from app.api.project_auth import require_project_owner
 
 app = FastAPI(
     title="Agentic Cinema: ContentGenAutomator Studio Core",
@@ -36,12 +41,33 @@ app.add_middleware(
         "Idempotency-Key",
         "X-Request-ID",
         "X-API-Key",
+        "X-Project-Owner-Token",
         "X-Gemini-API-Key",
         "X-Runway-API-Key",
         "X-Kling-API-Key",
         "X-ElevenLabs-API-Key",
     ],
 )
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request, exc: RequestValidationError):
+    errors = exc.errors()
+    sanitized_errors = []
+    for err in errors:
+        err_copy = dict(err)
+        val = err_copy.get("input")
+        if isinstance(val, str) and len(val) > 100:
+            err_copy["input"] = val[:100] + f"... [truncated {len(val)-100} chars]"
+        elif isinstance(val, dict):
+            sanitized_dict = {}
+            for k, v in val.items():
+                if isinstance(v, str) and len(v) > 100:
+                    sanitized_dict[k] = v[:100] + f"... [truncated {len(v)-100} chars]"
+                else:
+                    sanitized_dict[k] = v
+            err_copy["input"] = sanitized_dict
+        sanitized_errors.append(err_copy)
+    return JSONResponse(status_code=422, content={"detail": sanitized_errors})
 
 app.include_router(router)
 
@@ -107,23 +133,6 @@ def inline_governance_check(payload: dict):
     policy_pack = payload.get("policy_pack", "general_audience")
     return ibm_governance.audit_prompt(text, project_id=project_id, policy_pack=policy_pack)
 
-@app.get("/api/projects/{project_id}/compliance-certificate", tags=["governance"])
-def get_project_compliance_certificate(project_id: str, topic: str = "Cinematic Short", policy_pack: str = "general_audience"):
-    """Returns a signed cryptographic compliance certificate verifying adherence to IBM watsonx safety rules."""
-    records = [
-        {"scene_number": 1, "audit_id": "ibm-gov-01", "decision": "passed", "risk_score": 0.03},
-        {"scene_number": 2, "audit_id": "ibm-gov-02", "decision": "passed", "risk_score": 0.04},
-        {"scene_number": 3, "audit_id": "ibm-gov-03", "decision": "passed", "risk_score": 0.03}
-    ]
-    return compliance_certificate_service.generate_certificate(
-        project_id=project_id,
-        topic=topic,
-        policy_pack_id=policy_pack,
-        audit_records=records,
-        manifest_id=f"manifest-{project_id[:8]}"
-    )
-
-
 # ── 4. Parallel Research & Grounding ──────────────────────────────────────────
 
 @app.post("/api/research/parallel", tags=["research"])
@@ -155,9 +164,13 @@ def get_analytics_anomalies():
 
 # ── 6. Localization & Brand Kit ──────────────────────────────────────────────
 
-@app.post("/api/exports/{project_id}/locales/{locale}", tags=["localization"])
+@app.post(
+    "/api/exports/{project_id}/locales/{locale}",
+    tags=["localization"],
+    dependencies=[Depends(require_project_owner)],
+)
 def localize_project_export(
-    project_id: str,
+    project_id: UUID,
     locale: str,
     payload: dict,
     byok: ByokCredentials = Depends(get_byok_credentials)
@@ -166,17 +179,21 @@ def localize_project_export(
     topic = payload.get("topic", "")
     narration_en = payload.get("narration_en", "")
     api_key = resolve_gemini_key(byok)
-    return localization_service.localize_project(project_id, topic, narration_en, locale, api_key=api_key)
+    return localization_service.localize_project(str(project_id), topic, narration_en, locale, api_key=api_key)
 
 @app.get("/api/brand-kits/{studio_id}", tags=["brand_kit"])
 def get_studio_brand_kit(studio_id: str = "studio_default"):
     return brand_kit_service.get_brand_kit(studio_id)
 
-@app.get("/api/projects/{project_id}/audit-log/export", tags=["audit"])
-def export_soc2_audit_log(project_id: str):
+@app.get(
+    "/api/projects/{project_id}/audit-log/export",
+    tags=["audit"],
+    dependencies=[Depends(require_project_owner)],
+)
+def export_soc2_audit_log(project_id: UUID):
     """Exports full SOC2-style event audit log for compliance inspection."""
     return {
-        "project_id": project_id,
+        "project_id": str(project_id),
         "format": "SOC2_TYPE_II_COMPLIANT_EVENT_STREAM",
         "exported_at": "2026-09-02T12:00:00Z",
         "event_records": [

@@ -11,7 +11,7 @@ class ComplianceCertificateService:
     narrations, and prompt directives conform 100% to enterprise IBM watsonx governance policies.
     """
     def __init__(self, signing_secret: str = None):
-        self.signing_secret = signing_secret or getattr(settings, "export_signing_secret", "development-export-secret")
+        self.signing_secret = signing_secret or settings.export_signing_secret
 
     def generate_certificate(
         self,

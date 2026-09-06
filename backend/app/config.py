@@ -1,5 +1,6 @@
-from dataclasses import dataclass
 import os
+import secrets
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -17,6 +18,7 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
+        app_env = os.getenv("APP_ENV", "development")
         repository = os.getenv("PROJECT_REPOSITORY", "memory").lower()
         provider = os.getenv("LLM_PROVIDER", "mock").lower()
         database_url = os.getenv("DATABASE_URL", "")
@@ -24,10 +26,18 @@ class Settings:
         if repository == "postgres" and not database_url:
             raise RuntimeError("DATABASE_URL is required when PROJECT_REPOSITORY=postgres.")
         if provider == "gemini" and not gemini_key:
-            raise RuntimeError("GEMINI_API_KEY is required when LLM_PROVIDER=gemini.")
+            # Server does not provide a global key; client BYOK or simulated fallback will be used
+            pass
+        
+        signing_secret = os.getenv("EXPORT_SIGNING_SECRET", "")
+        if app_env == "production" and not signing_secret:
+            raise RuntimeError("EXPORT_SIGNING_SECRET is required when APP_ENV=production.")
+        if not signing_secret:
+            signing_secret = secrets.token_hex(32)
+
         origins = tuple(item.strip() for item in os.getenv("CORS_ORIGINS", "http://localhost:3000,https://content-gen-automator.replit.app").split(",") if item.strip())
         return cls(
-            app_env=os.getenv("APP_ENV", "development"),
+            app_env=app_env,
             log_level=os.getenv("LOG_LEVEL", "INFO"),
             database_url=database_url,
             project_repository=repository,
@@ -36,7 +46,7 @@ class Settings:
             gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
             cors_origins=origins,
             integration_service_token=os.getenv("INTEGRATION_SERVICE_TOKEN", ""),
-            export_signing_secret=os.getenv("EXPORT_SIGNING_SECRET", "development-export-secret"),
+            export_signing_secret=signing_secret,
         )
 
 

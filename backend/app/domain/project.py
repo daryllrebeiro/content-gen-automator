@@ -1,3 +1,4 @@
+import secrets
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Literal
@@ -134,3 +135,4 @@ class Project:
     prompts: dict[int, VideoPrompt] = field(default_factory=dict)
     prompt_history: dict[int, list[VideoPrompt]] = field(default_factory=dict)
     platform_exports: dict[str, PlatformExport] = field(default_factory=dict)
+    owner_token: str = field(default_factory=lambda: secrets.token_urlsafe(32))

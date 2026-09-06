@@ -32,6 +32,7 @@ class ProjectRecord(Base):
     duration_seconds: Mapped[int] = mapped_column()
     status: Mapped[str] = mapped_column(String(40))
     current_scene_number: Mapped[int] = mapped_column(default=0)
+    owner_token: Mapped[str] = mapped_column(String(64), nullable=True, default="")
     input_data: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     story_data: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     continuity_data: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
@@ -221,6 +222,7 @@ class SqlProjectRepository:
             record.duration_seconds = project.input.duration_seconds
             record.status = project.status.value
             record.current_scene_number = project.current_scene_number
+            record.owner_token = getattr(project, "owner_token", "")
             exports_data = {}
             for k, v in getattr(project, "platform_exports", {}).items():
                 exports_data[k] = {
@@ -519,6 +521,7 @@ class SqlProjectRepository:
             status=ProjectStatus(record.status),
             current_scene_number=record.current_scene_number,
             input=ProjectInput(topic=record.topic, duration_seconds=record.duration_seconds, **input_data),
+            owner_token=getattr(record, "owner_token", "") or "",
         )
         for k, v in (platform_exports_raw or {}).items():
             project.platform_exports[k] = PlatformExport(

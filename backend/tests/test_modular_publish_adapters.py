@@ -165,7 +165,10 @@ def test_platform_export_download_security_hardening(monkeypatch):
     monkeypatch.setattr("app.api.routes.settings", prod_settings)
 
     # Unauthorized request in production
-    unauth_resp = client.get(f"/api/projects/{proj_id}/platform-exports/tiktok/download/manifest.json")
+    unauth_resp = client.get(
+        f"/api/projects/{proj_id}/platform-exports/tiktok/download/manifest.json",
+        headers={"Skip-Auto-Owner-Token": "true"}
+    )
     assert unauth_resp.status_code == 403
     assert "Access denied" in unauth_resp.json()["detail"]
 

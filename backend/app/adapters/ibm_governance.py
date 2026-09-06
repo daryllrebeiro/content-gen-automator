@@ -1,11 +1,65 @@
-import os
-import time
+import base64
 import hashlib
+import os
+import re
+import time
+import unicodedata
 from typing import Dict, List, Any, Optional
 import httpx
 from app.adapters.grafana_telemetry import telemetry
 from app.adapters.clickhouse_analytics import clickhouse_analytics
 from app.services.policy_pack_service import policy_pack_service
+
+ZERO_WIDTH_PATTERN = re.compile(r'[\u200B-\u200D\uFEFF]')
+
+HOMOGLYPH_MAP = str.maketrans({
+    'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e', 'ж': 'zh', 'з': 'z',
+    'и': 'i', 'й': 'i', 'к': 'k', 'л': 'l', 'м': 'm', 'н': 'n', 'о': 'o', 'п': 'p',
+    'р': 'p', 'с': 'c', 'т': 't', 'у': 'y', 'ф': 'f', 'х': 'x', 'ц': 'ts', 'ч': 'ch',
+    'ш': 'sh', 'щ': 'shch', 'ъ': '', 'ы': 'y', 'ь': '', 'э': 'e', 'ю': 'yu', 'я': 'ya',
+    'і': 'i', 'ї': 'yi', 'є': 'ye', 'ґ': 'g', 'ј': 'j', 'ѕ': 's',
+    'А': 'a', 'В': 'b', 'Е': 'e', 'К': 'k', 'М': 'm', 'Н': 'h', 'О': 'o', 'Р': 'p',
+    'С': 'c', 'Т': 't', 'Х': 'x', 'І': 'i', 'Ј': 'j', 'Ѕ': 's',
+    'α': 'a', 'β': 'b', 'γ': 'g', 'δ': 'd', 'ε': 'e', 'ζ': 'z', 'η': 'h', 'θ': 'th',
+    'ι': 'i', 'κ': 'k', 'λ': 'l', 'μ': 'm', 'ν': 'v', 'ξ': 'x', 'ο': 'o', 'π': 'p',
+    'ρ': 'p', 'σ': 's', 'τ': 't', 'υ': 'y', 'φ': 'f', 'χ': 'x', 'ψ': 'ps', 'ω': 'o',
+    'Α': 'a', 'Β': 'b', 'Ε': 'e', 'Ζ': 'z', 'Η': 'h', 'Ι': 'i', 'Κ': 'k', 'Μ': 'm',
+    'Ν': 'n', 'Ο': 'o', 'Ρ': 'p', 'Τ': 't', 'Υ': 'y', 'Χ': 'x',
+})
+
+OVERRIDE_PATTERNS = [
+    re.compile(r"ignore\s+(all\s+)?(prior\s+|previous\s+)?(safety\s+|governance\s+)?instructions", re.IGNORECASE),
+    re.compile(r"disregard\s+(all\s+)?(prior\s+|previous\s+)?(safety\s+|governance\s+)?(instructions|guidance|rules)", re.IGNORECASE),
+    re.compile(r"bypass\s+(all\s+)?(prior\s+)?(safety|governance|guardrail|policy)", re.IGNORECASE),
+    re.compile(r"developer\s+mode", re.IGNORECASE),
+    re.compile(r"dan\s+mode", re.IGNORECASE),
+    re.compile(r"jailbreak", re.IGNORECASE),
+    re.compile(r"unrestricted", re.IGNORECASE),
+]
+
+BASE64_TOKEN_PATTERN = re.compile(r'[A-Za-z0-9+/]{16,}={0,2}')
+
+
+def _normalize_text(text: str) -> str:
+    text = ZERO_WIDTH_PATTERN.sub('', text)
+    text = unicodedata.normalize('NFKD', text)
+    text = text.translate(HOMOGLYPH_MAP)
+    return text.lower()
+
+
+def _extract_and_decode_base64(text: str) -> str:
+    decoded_chunks = []
+    for match in BASE64_TOKEN_PATTERN.finditer(text):
+        token = match.group(0)
+        try:
+            raw = base64.b64decode(token, validate=True)
+            decoded_str = raw.decode('utf-8', errors='ignore')
+            if decoded_str and any(c.isalnum() for c in decoded_str):
+                decoded_chunks.append(decoded_str)
+        except Exception:
+            continue
+    return " ".join(decoded_chunks)
+
 
 class IBMGovernanceAdapter:
     """
@@ -28,28 +82,61 @@ class IBMGovernanceAdapter:
         """
         start_time = time.time()
         pack = policy_pack_service.get_policy_pack(policy_pack)
-        
+
+        # 1. Fail closed on instruction override / prompt jailbreak patterns
+        combined_raw = f"{prompt_text} {visual_style}"
+        for pat in OVERRIDE_PATTERNS:
+            if pat.search(combined_raw):
+                audit_id = hashlib.sha256(f"ibm_audit:{project_id}:{prompt_text}:{time.time()}".encode()).hexdigest()[:16]
+                return {
+                    "partner": "IBM watsonx.governance",
+                    "audit_id": f"ibm-gov-{audit_id}",
+                    "decision": "flagged",
+                    "policy_pack": policy_pack,
+                    "max_risk_allowed": pack.max_risk_score_allowed,
+                    "safety_rating": "Requires-Remediation",
+                    "risk_score": 1.0,
+                    "toxicity_score": 0.95,
+                    "copyright_risk": "High Risk: Instruction Override / Jailbreak Pattern Detected",
+                    "pii_detected": False,
+                    "categories_flagged": ["jailbreak_attempt"],
+                    "policy_checks": {
+                        "brand_safety": "Flagged: Attempted safety instruction override",
+                        "copyright_clearance": "Flagged: Unverified override prompt",
+                        "hallucination_index": "N/A",
+                        "content_suitability": "Policy Violation: Adversarial Framing"
+                    },
+                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    "latency_ms": round((time.time() - start_time) * 1000, 2)
+                }
+
+        # 2. Extract and decode any embedded Base64 payload
+        decoded_b64 = _extract_and_decode_base64(prompt_text)
+
+        # 3. Comprehensive text normalization (zero-width removal, homoglyph mapping, lowercase)
+        normalized_target = _normalize_text(f"{prompt_text} {visual_style} {decoded_b64}")
+
         # Copyright / IP likeness patterns
         copyright_triggers = ["mickey mouse", "batman", "marvel", "disney", "superman", "pikachu", "nike logo"]
-        forbidden_terms = ["violence", "nsfw", "gore", "hate speech", "explicit", "trademark_infringement"]
-        
+        forbidden_terms = ["violence", "nsfw", "gore", "hate speech", "explicit", "trademark_infringement", "weapon", "chemical weapon", "biological weapon", "explosive", "bomb"]
+
         # Stricter triggers for Kids & Family
         if policy_pack == "kids_family":
-            forbidden_terms.extend(["scary", "monster", "dark abyss", "frightening", "weapon", "blood"])
+            forbidden_terms.extend(["scary", "monster", "dark abyss", "frightening", "blood"])
 
-        found_copyright = [term for term in copyright_triggers if term in prompt_text.lower()]
-        found_safety = [term for term in forbidden_terms if term in prompt_text.lower()]
-        
+        found_copyright = [term for term in copyright_triggers if term in normalized_target]
+        found_safety = [term for term in forbidden_terms if term in normalized_target]
+
         # Compute dynamic risk score
         base_risk = 0.02
         if found_copyright:
             base_risk += 0.45 * len(found_copyright)
         if found_safety:
             base_risk += 0.50 * len(found_safety)
-        
+
         risk_score = min(1.0, base_risk)
         passed = (len(found_copyright) == 0 and len(found_safety) == 0 and risk_score <= pack.max_risk_score_allowed)
-        
+
         audit_id = hashlib.sha256(f"ibm_audit:{project_id}:{prompt_text}:{time.time()}".encode()).hexdigest()[:16]
 
         report = {
@@ -63,6 +150,7 @@ class IBMGovernanceAdapter:
             "toxicity_score": 0.01 if passed else 0.85,
             "copyright_risk": "Low (Original Composition)" if not found_copyright else f"High Risk: Detected reference to {found_copyright}",
             "pii_detected": False,
+            "categories_flagged": found_safety + found_copyright,
             "policy_checks": {
                 "brand_safety": "Compliant" if not found_safety else f"Flagged: Sensitive vocabulary {found_safety}",
                 "copyright_clearance": "Clear" if not found_copyright else f"Flagged: IP likeness hazard {found_copyright}",

@@ -154,15 +154,17 @@ def test_cost_ceiling_enforcement_multi_platform_flagship_project():
             "target_platforms": ["YOUTUBE_SHORTS", "TIKTOK", "INSTAGRAM_REELS"],
             "model_tier": "flagship",
             "video_provider": "runway",
-            "token_budget": 100,
+            "token_budget": 1000,
         }
     )
     assert create_res.status_code == 200
     p_id = create_res.json()["id"]
 
-    # 2. Generate prompt (consumes ~400+ tokens)
+    # 2. Generate prompt and exceed token budget
     gen_res = client.post(f"/api/projects/{p_id}/generate")
     assert gen_res.status_code == 200
+    from app.adapters.grafana_telemetry import telemetry
+    telemetry.record_prompt_generation(0.1, input_tokens=800, output_tokens=800, project_id=str(p_id))
 
     # 3. Approve prompt
     appr_res = client.post(f"/api/projects/{p_id}/prompts/1/approve", json={"decision": "APPROVE", "actor": "director"})

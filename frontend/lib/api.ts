@@ -109,6 +109,7 @@ export type Project = {
   target_platforms?: string[];
   model_tier?: string;
   platform_exports?: Record<string, PlatformExport>;
+  owner_token?: string | null;
 };
 
 
@@ -252,6 +253,34 @@ export function getByokHeaders(): Record<string, string> {
   return headers;
 }
 
+export const PROJECT_TOKENS_STORAGE_KEY = "cga_project_tokens";
+
+export function getStoredProjectTokens(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(PROJECT_TOKENS_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveProjectOwnerToken(projectId: string, token: string): void {
+  if (typeof window === "undefined" || !projectId || !token) return;
+  try {
+    const tokens = getStoredProjectTokens();
+    tokens[projectId] = token;
+    localStorage.setItem(PROJECT_TOKENS_STORAGE_KEY, JSON.stringify(tokens));
+  } catch (e) {
+    console.error("Failed to save project owner token to localStorage", e);
+  }
+}
+
+export function getProjectOwnerToken(projectId: string): string | null {
+  const tokens = getStoredProjectTokens();
+  return tokens[projectId] || null;
+}
+
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL !== undefined && process.env.NEXT_PUBLIC_API_BASE_URL !== ""
     ? process.env.NEXT_PUBLIC_API_BASE_URL
@@ -261,13 +290,24 @@ const API_BASE =
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const byokHeaders = getByokHeaders();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...byokHeaders,
+    ...((options?.headers as Record<string, string>) ?? {}),
+  };
+
+  // Automatically attach X-Project-Owner-Token if the path targets a project
+  const projectMatch = path.match(/\/api\/(?:projects|telemetry\/budget-status|exports)\/([0-9a-fA-F-]+)/);
+  if (projectMatch && projectMatch[1]) {
+    const token = getProjectOwnerToken(projectMatch[1]);
+    if (token) {
+      headers["X-Project-Owner-Token"] = token;
+    }
+  }
+
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...byokHeaders,
-      ...(options?.headers ?? {}),
-    },
+    headers,
   });
   if (!response.ok) {
     const raw = await response.json().catch(() => null);
@@ -296,8 +336,12 @@ export async function verifyByokKey(provider: string, apiKey: string): Promise<{
   });
 }
 
-export function createProject(input: ProjectInput) {
-  return request<Project>("/api/projects", { method: "POST", body: JSON.stringify(input) });
+export async function createProject(input: ProjectInput): Promise<Project> {
+  const project = await request<Project>("/api/projects", { method: "POST", body: JSON.stringify(input) });
+  if (project.id && project.owner_token) {
+    saveProjectOwnerToken(project.id, project.owner_token);
+  }
+  return project;
 }
 
 export function getProject(projectId: string) {

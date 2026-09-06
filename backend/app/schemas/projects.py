@@ -1,13 +1,15 @@
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 DurationSeconds = Literal[10, 20, 30]
 
 
 class ProjectCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     topic: str = Field(min_length=3, max_length=500)
     facts: list[str] = Field(default_factory=list, max_length=20)
     source_urls: list[str] = Field(default_factory=list, max_length=20)
@@ -21,7 +23,7 @@ class ProjectCreateRequest(BaseModel):
     video_provider: str = Field(default="mock")
     stitch_provider: str = Field(default="mock")
     publish_provider: str = Field(default="mock")
-    token_budget: int = Field(default=50000, description="Max token cost ceiling for Auto-Pilot runs")
+    token_budget: int = Field(default=50000, ge=1000, le=1000000, description="Max token cost ceiling for Auto-Pilot runs")
     target_platforms: list[str] = Field(default_factory=lambda: ["YOUTUBE_SHORTS"])
     model_tier: str = Field(default="flagship")
 
@@ -96,6 +98,7 @@ class ProjectResponse(BaseModel):
     target_platforms: list[str] = Field(default_factory=lambda: ["YOUTUBE_SHORTS"])
     model_tier: str = "flagship"
     platform_exports: dict[str, PlatformExportResponse] = Field(default_factory=dict)
+    owner_token: str | None = None
 
 
 

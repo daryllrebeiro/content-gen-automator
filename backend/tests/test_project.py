@@ -234,3 +234,44 @@ def test_export_contains_markdown_and_publishing_package():
     assert "## Prompts" in markdown
     assert data["publishing"]["title"].startswith("Export test")
     assert data["prompts"][0]["version_number"] == 1
+
+
+def test_create_project_resilience_and_byok_error_translation():
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    test_client = TestClient(app)
+    user_payload = {
+        "topic": "Create a short on how a car engine works",
+        "facts": [],
+        "language": "English",
+        "tone": "curious cinematic documentary",
+        "audience": "general audience",
+        "visual_preferences": {
+            "style": "stylized cinematic 3D animation",
+            "policy_pack": "general_audience"
+        },
+        "duration_seconds": 10,
+        "autonomous": False,
+        "tts_provider": "mock",
+        "video_provider": "mock",
+        "stitch_provider": "mock",
+        "publish_provider": "mock",
+        "target_platforms": ["YOUTUBE_SHORTS"],
+        "model_tier": "flagship"
+    }
+
+    # 1. Project creation succeeds cleanly without 500
+    res = test_client.post("/api/projects", json=user_payload)
+    assert res.status_code == 200, f"Expected 200, got {res.status_code}: {res.text}"
+    assert "id" in res.json()
+    assert "owner_token" in res.json()
+
+    # 2. Invalid BYOK key translates cleanly to 400 BYOK_KEY_REQUIRED instead of 500
+    res_invalid_byok = test_client.post(
+        "/api/projects",
+        json=user_payload,
+        headers={"X-Gemini-API-Key": "AIzaSyInvalidFakeKeyTest"}
+    )
+    assert res_invalid_byok.status_code == 400
+    assert res_invalid_byok.json().get("detail", {}).get("error") == "BYOK_KEY_REQUIRED"

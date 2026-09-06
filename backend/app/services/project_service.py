@@ -128,6 +128,9 @@ class InMemoryProjectRepository:
         return [ev for ev in self.approval_events if ev.project_id == project_id]
 
 
+_shared_in_memory_repository: InMemoryProjectRepository | None = None
+
+
 class ProjectService:
     def __init__(self, repository: InMemoryProjectRepository | None = None) -> None:
         self.repository = repository or self._default_repository()
@@ -138,8 +141,11 @@ class ProjectService:
 
     @staticmethod
     def _default_repository():
+        global _shared_in_memory_repository
         if os.getenv("PROJECT_REPOSITORY", "memory").lower() != "postgres":
-            return InMemoryProjectRepository()
+            if _shared_in_memory_repository is None:
+                _shared_in_memory_repository = InMemoryProjectRepository()
+            return _shared_in_memory_repository
         from app.repositories.sql import SqlProjectRepository
 
         return SqlProjectRepository(os.environ["DATABASE_URL"])
@@ -150,19 +156,45 @@ class ProjectService:
             from app.providers.mock import MockProvider
 
             return MockProvider()
-        from app.providers.gemini import GeminiProvider
-        from app.providers.reliability import RetryingProvider
 
-        return RetryingProvider(
-            GeminiProvider(),
-            max_attempts=int(os.getenv("PROVIDER_MAX_ATTEMPTS", "3")),
-            timeout_seconds=float(os.getenv("PROVIDER_TIMEOUT_SECONDS", "30")),
-        )
+        gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
+        if not gemini_key or gemini_key in ("your-api-key-here", "GEMINI_API_KEY"):
+            from app.providers.mock import MockProvider
 
-    def create(self, project_input: ProjectInput) -> Project:
+            return MockProvider()
+
+        try:
+            from app.providers.gemini import GeminiProvider
+            from app.providers.reliability import RetryingProvider
+
+            return RetryingProvider(
+                GeminiProvider(api_key=gemini_key),
+                max_attempts=int(os.getenv("PROVIDER_MAX_ATTEMPTS", "3")),
+                timeout_seconds=float(os.getenv("PROVIDER_TIMEOUT_SECONDS", "30")),
+            )
+        except Exception:
+            from app.providers.mock import MockProvider
+
+            return MockProvider()
+
+    def create(self, project_input: ProjectInput, gemini_api_key: str | None = None) -> Project:
         project = Project(input=project_input, status=ProjectStatus.INPUT_RECEIVED)
         self.fact_engine.ingest(project)
-        self.story_architect.create(project)
+        if gemini_api_key:
+            from app.providers.gemini import GeminiProvider
+            from app.providers.reliability import RetryingProvider
+            from app.services.prompt_pipeline import StoryArchitect
+
+            architect = StoryArchitect(
+                RetryingProvider(
+                    GeminiProvider(api_key=gemini_api_key),
+                    max_attempts=int(os.getenv("PROVIDER_MAX_ATTEMPTS", "3")),
+                    timeout_seconds=float(os.getenv("PROVIDER_TIMEOUT_SECONDS", "30")),
+                )
+            )
+            architect.create(project)
+        else:
+            self.story_architect.create(project)
         project.status = ProjectStatus.SCENES_PLANNED
         self.repository.save(project)
         self._audit("project.created", str(project.id), metadata={"duration_seconds": project.input.duration_seconds})
