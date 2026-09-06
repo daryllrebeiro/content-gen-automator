@@ -13,6 +13,7 @@ if [ -n "$DEPLOYMENT_ID" ]; then
   export NODE_ENV="production"
   export APP_ENV="production"
 fi
+export EXPORT_SIGNING_SECRET="${EXPORT_SIGNING_SECRET:-0f8e9b42c67d1a3e5f8b9c0d2e4a6f8b0f8e9b42c67d1a3e5f8b9c0d2e4a6f8b}"
 
 install_backend_if_needed() {
   if ! python3 -c "import fastapi, uvicorn, pydantic, google.adk" 2>/dev/null; then

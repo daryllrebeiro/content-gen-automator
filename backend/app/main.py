@@ -120,10 +120,6 @@ def get_partner_ecosystem_status():
 
 # ── 3. IBM watsonx Governance & Compliance ────────────────────────────────────
 
-@app.get("/api/governance/policy-packs", tags=["governance"])
-def list_governance_policy_packs() -> List[GovernancePolicyPack]:
-    """Lists configurable enterprise compliance policy packs."""
-    return policy_pack_service.list_policy_packs()
 
 @app.post("/api/governance/inline-check", tags=["governance"])
 def inline_governance_check(payload: dict):

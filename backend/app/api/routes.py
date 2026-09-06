@@ -1955,8 +1955,6 @@ def download_platform_export_file(
             is_authed = True
         elif x_api_key and hmac.compare_digest(x_api_key, expected_token):
             is_authed = True
-    elif settings.app_env != "production":
-        is_authed = True
 
     if not is_authed:
         raise HTTPException(status_code=403, detail="Access denied: Valid owner or integration authorization required to download export package.")
