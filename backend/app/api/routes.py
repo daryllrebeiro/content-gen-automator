@@ -9,6 +9,7 @@ from typing import Dict, Any, List, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, BackgroundTasks, Response, Request
 import time
+import threading
 
 from app.providers.reliability import ProviderFailure
 from app.schemas.health import HealthResponse, ReadinessResponse
@@ -69,7 +70,9 @@ from app.services.compliance_certificate_service import compliance_certificate_s
 from app.api.byok import (
     ByokCredentials,
     ByokVerifyRequest,
+    SlidingWindowRateLimiter,
     get_byok_credentials,
+    get_trusted_client_ip,
     resolve_gemini_key,
     resolve_video_provider_key,
     verify_gemini_key,
@@ -79,6 +82,7 @@ from app.api.byok import (
 
 
 router = APIRouter()
+project_creation_limiter = SlidingWindowRateLimiter(max_requests=30, window_seconds=60)
 project_service = ProjectService()
 export_service = ExportService()
 delivery_service = DeliveryService()
@@ -86,6 +90,43 @@ production_service = ProductionService()
 publishing_gate_service = PublishingGateService()
 youtube_metadata_validator = YouTubeMetadataValidator()
 logger = logging.getLogger(__name__)
+
+
+class ProductionAdmissionLimiter:
+    """
+    Admission control for production jobs independent of token-cost ceiling.
+    Protects container resources (threads, memory, network connections)
+    by enforcing concurrency bounds and queue-depth limits on production admissions.
+    """
+    def __init__(self, max_concurrent: int = 3, refill_time: float = 15.0):
+        self.max_concurrent = max_concurrent
+        self.refill_time = refill_time
+        self._lock = threading.Lock()
+        self._admissions: dict[str, list[float]] = {}
+
+    def acquire(self, project_id: str) -> bool:
+        now = time.time()
+        with self._lock:
+            history = self._admissions.get(project_id, [])
+            valid_history = [t for t in history if now - t < self.refill_time]
+            
+            if len(valid_history) >= self.max_concurrent:
+                self._admissions[project_id] = valid_history
+                return False
+            
+            valid_history.append(now)
+            self._admissions[project_id] = valid_history
+            return True
+
+    def release(self, project_id: str):
+        with self._lock:
+            history = self._admissions.get(project_id, [])
+            if history:
+                history.pop(0)
+                self._admissions[project_id] = history
+
+
+production_admission_limiter = ProductionAdmissionLimiter(max_concurrent=3, refill_time=15.0)
 
 
 def _handle_provider_failure(exc: Exception, provider: str = "gemini") -> None:
@@ -184,6 +225,8 @@ def run_production_pipeline_async(
             "error": str(e),
         }
         production_service.complete_callback(job, payload, repo)
+    finally:
+        production_admission_limiter.release(project_id_str)
 
 
 def run_publishing_pipeline_async(project_id_str: str, upload_job_id: str):
@@ -355,9 +398,21 @@ def _project_response(project, include_owner_token: bool = False) -> ProjectResp
 @router.post("/api/projects", response_model=ProjectResponse, tags=["projects"])
 def create_project(
     request: ProjectCreateRequest,
+    req: Request,
     byok: ByokCredentials = Depends(get_byok_credentials),
     idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
 ) -> ProjectResponse:
+    # OFF-04: Enforce project creation rate limiting per client IP
+    client_ip = get_trusted_client_ip(req)
+    allowed, retry_after = project_creation_limiter.is_allowed(client_ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": "RATE_LIMIT_EXCEEDED",
+                "message": f"Project creation rate limit exceeded (maximum 30 projects per minute). Please retry in {retry_after} seconds."
+            }
+        )
     target_platforms = [
         Platform(p) if isinstance(p, str) else p
         for p in request.target_platforms
@@ -453,11 +508,17 @@ def get_project(project_id: UUID) -> ProjectResponse:
 )
 def generate_first_prompt(
     project_id: UUID,
-    byok: ByokCredentials = Depends(get_byok_credentials)
+    byok: ByokCredentials = Depends(get_byok_credentials),
+    x_expected_version: Optional[int] = Header(default=None, alias="X-Expected-Version"),
 ) -> PromptResponse:
     try:
         t0 = time.time()
         project = project_service.repository.get(project_id)
+        if x_expected_version is not None and getattr(project, "version", 0) != x_expected_version:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Concurrency conflict: Project version mismatch (expected {x_expected_version}, got {getattr(project, 'version', 0)})."
+            )
         current_scene_idx = len(project.prompts) + 1
         model_tier = getattr(project.input, "model_tier", "flagship")
         user_byok_gemini = byok.gemini_api_key.strip() if byok.gemini_api_key else None
@@ -524,7 +585,7 @@ def generate_first_prompt(
             logger.warning("ADK orchestrator trace notice: %s", orchestrator_exc)
 
         # 2. Advance Domain FSM & Generate Prompt
-        prompt = project_service.generate_next(project_id, gemini_api_key=active_gemini_key)
+        prompt = project_service.generate_next(project_id, gemini_api_key=active_gemini_key, expected_version=x_expected_version)
         latency = time.time() - t0
         
         # 3. IBM watsonx Governance Compliance Gate (Enforced & Blocking)
@@ -573,9 +634,10 @@ def generate_first_prompt(
 )
 def generate_next_prompt(
     project_id: UUID,
-    byok: ByokCredentials = Depends(get_byok_credentials)
+    byok: ByokCredentials = Depends(get_byok_credentials),
+    x_expected_version: Optional[int] = Header(default=None, alias="X-Expected-Version"),
 ) -> PromptResponse:
-    return generate_first_prompt(project_id, byok=byok)
+    return generate_first_prompt(project_id, byok=byok, x_expected_version=x_expected_version)
 
 
 @router.post(
@@ -587,11 +649,22 @@ def generate_next_prompt(
 def regenerate_prompt(
     project_id: UUID,
     scene_number: int,
-    byok: ByokCredentials = Depends(get_byok_credentials)
+    byok: ByokCredentials = Depends(get_byok_credentials),
+    x_expected_version: Optional[int] = Header(default=None, alias="X-Expected-Version"),
 ) -> PromptResponse:
+    if x_expected_version is None:
+        raise HTTPException(
+            status_code=428,
+            detail="Precondition Required: X-Expected-Version header is required for this operation."
+        )
     try:
         t0 = time.time()
         project = project_service.repository.get(project_id)
+        if getattr(project, "version", 0) != x_expected_version:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Concurrency conflict: Project version mismatch (expected {x_expected_version}, got {getattr(project, 'version', 0)})."
+            )
         model_tier = getattr(project.input, "model_tier", "flagship")
         user_byok_gemini = byok.gemini_api_key.strip() if byok.gemini_api_key else None
         gemini_key = resolve_gemini_key(byok)
@@ -649,7 +722,7 @@ def regenerate_prompt(
             gemini_api_key=active_gemini_key,
         )
 
-        prompt = project_service.regenerate(project_id, scene_number, gemini_api_key=active_gemini_key)
+        prompt = project_service.regenerate(project_id, scene_number, gemini_api_key=active_gemini_key, expected_version=x_expected_version)
         latency = time.time() - t0
         
         # IBM watsonx Governance gate check
@@ -694,11 +767,20 @@ def regenerate_prompt(
 def get_project_compliance_certificate(project_id: UUID):
     try:
         project = project_service.repository.get(project_id)
+        if not project.prompts:
+            raise HTTPException(
+                status_code=422,
+                detail="NOT_YET_AUDITABLE: no generated prompts exist for this project."
+            )
+        if len(project.prompts) < len(project.scenes):
+            raise HTTPException(
+                status_code=422,
+                detail=f"NOT_YET_AUDITABLE: project has {len(project.prompts)}/{len(project.scenes)} generated prompts. All scenes must be generated before issuing a compliance certificate."
+            )
+
         audit_records = [
             ibm_governance.audit_prompt(prompt.text, project_id=str(project_id))
             for prompt in project.prompts.values()
-        ] if project.prompts else [
-            ibm_governance.audit_prompt(f"Scene for topic: {project.input.topic}", project_id=str(project_id))
         ]
         certificate = compliance_certificate_service.generate_certificate(
             project_id=str(project_id),
@@ -758,6 +840,7 @@ def list_governance_policy_packs():
 @router.post(
     "/api/governance/policy-packs",
     tags=["governance"],
+    dependencies=[Depends(require_integration_auth)],
 )
 def create_governance_policy_pack(pack: Dict[str, Any]):
     """Registers or updates a custom IBM watsonx governance policy pack."""
@@ -848,6 +931,30 @@ def public_create_export_manifest(project_id: UUID) -> ExportManifestResponse:
     except ProjectNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Project not found") from exc
     return _manifest_response(manifest)
+
+
+@router.get(
+    "/api/projects/{project_id}/exports/{manifest_id}/download",
+    tags=["export"],
+)
+def public_download_export_manifest(
+    project_id: UUID,
+    manifest_id: str,
+    token: str = Query(...),
+) -> dict:
+    """OFF-08: Capability-based download endpoint using HMAC-signed download_token."""
+    if delivery_service.verify_token(token, settings.export_signing_secret) != manifest_id:
+        raise HTTPException(status_code=403, detail="Invalid or expired download token")
+    manifest = getattr(project_service.repository, "get_export_manifest", lambda _: None)(manifest_id)
+    if manifest is None or str(manifest.project_id) != str(project_id):
+        raise HTTPException(status_code=404, detail="Export manifest not found for this project")
+    return {
+        "manifest_id": manifest.manifest_id,
+        "checksum": manifest.checksum,
+        "package_version": manifest.package_version,
+        "markdown": manifest.markdown,
+        "data": manifest.data,
+    }
 
 
 
@@ -1200,10 +1307,13 @@ def public_approve_prompt(
     request: ApprovalRequest,
     x_expected_version: Optional[int] = Header(default=None, alias="X-Expected-Version"),
 ) -> ApprovalResponse:
+    if x_expected_version is None:
+        raise HTTPException(
+            status_code=428,
+            detail="Precondition Required: X-Expected-Version header is required for this operation."
+        )
     try:
-        current_proj = project_service.repository.get(project_id)
-        ver = x_expected_version if x_expected_version is not None else getattr(current_proj, "version", 0)
-        project = project_service.decide_prompt(project_id, scene_number, decision="approved", actor=request.actor, comment=request.comment, expected_version=ver)
+        project = project_service.decide_prompt(project_id, scene_number, decision="approved", actor=request.actor, comment=request.comment, expected_version=x_expected_version)
     except ProjectNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Project not found") from exc
     except ProjectStateError as exc:
@@ -1224,10 +1334,13 @@ def public_reject_prompt(
     request: ApprovalRequest,
     x_expected_version: Optional[int] = Header(default=None, alias="X-Expected-Version"),
 ) -> ApprovalResponse:
+    if x_expected_version is None:
+        raise HTTPException(
+            status_code=428,
+            detail="Precondition Required: X-Expected-Version header is required for this operation."
+        )
     try:
-        current_proj = project_service.repository.get(project_id)
-        ver = x_expected_version if x_expected_version is not None else getattr(current_proj, "version", 0)
-        project = project_service.decide_prompt(project_id, scene_number, decision="rejected", actor=request.actor, comment=request.comment, expected_version=ver)
+        project = project_service.decide_prompt(project_id, scene_number, decision="rejected", actor=request.actor, comment=request.comment, expected_version=x_expected_version)
     except ProjectNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Project not found") from exc
     except ProjectStateError as exc:
@@ -1257,10 +1370,14 @@ def integration_review_clip(
     except ProjectNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Project not found") from exc
 
-    # Verify artifact belongs to this project/scene
+    # Verify artifact belongs to this project/scene (OFF-02 defense)
     artifact = getattr(project_service.repository, "get_clip_artifact", lambda _: None)(request.artifact_id)
     if artifact is None:
         raise HTTPException(status_code=404, detail="Clip artifact not found")
+
+    parent_job = getattr(project_service.repository, "get_production_job", lambda _: None)(artifact.job_id)
+    if parent_job is None or str(parent_job.project_id) != str(project_id) or parent_job.scene_number != scene_number:
+        raise HTTPException(status_code=404, detail="Clip artifact does not match specified project scene")
 
     # Update artifact review_status
     artifact.review_status = request.decision
@@ -1602,6 +1719,7 @@ def public_submit_production(
     background_tasks: BackgroundTasks,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     byok: ByokCredentials = Depends(get_byok_credentials),
+    x_expected_version: Optional[int] = Header(default=None, alias="X-Expected-Version"),
 ) -> ProductionJobResponse:
     ikey = idempotency_key or f"prod-scene-{project_id}-{scene_number}-{datetime.now(timezone.utc).timestamp()}"
     request_hash = hashlib.sha256(f"public.production:{project_id}:{scene_number}".encode()).hexdigest()
@@ -1612,8 +1730,44 @@ def public_submit_production(
     
     try:
         project = project_service.repository.get(project_id)
+        if x_expected_version is not None and getattr(project, "version", 0) != x_expected_version:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Concurrency conflict: Project version mismatch (expected {x_expected_version}, got {getattr(project, 'version', 0)})."
+            )
         if project.status not in {project.status.APPROVED, project.status.COMPLETED}:
             raise ProjectStateError("Approve the prompt before submitting production.")
+
+        # Concurrent Production Job Admission Limiter (Resource Exhaustion Defense)
+        MAX_CONCURRENT_PRODUCTION_JOBS_PER_PROJECT = 3
+        repo = project_service.repository
+        if hasattr(repo, "production_jobs"):
+            active_jobs = [
+                j for j in repo.production_jobs.values()
+                if j.project_id == str(project_id) and j.status in {"SUBMITTED", "RUNNING"}
+            ]
+        elif hasattr(repo, "engine"):
+            from sqlalchemy import select as sa_select
+            from app.repositories.sql import Session, ProductionJobRecord
+            with Session(repo.engine) as session:
+                active_jobs = session.scalars(
+                    sa_select(ProductionJobRecord)
+                    .where(
+                        ProductionJobRecord.project_id == str(project_id),
+                        ProductionJobRecord.status.in_(["SUBMITTED", "RUNNING"])
+                    )
+                ).all()
+        else:
+            active_jobs = []
+
+        if len(active_jobs) >= MAX_CONCURRENT_PRODUCTION_JOBS_PER_PROJECT:
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "error": "CONCURRENCY_LIMIT_EXCEEDED",
+                    "message": f"Maximum concurrent production jobs ({MAX_CONCURRENT_PRODUCTION_JOBS_PER_PROJECT}) reached for this project. Please wait for active rendering jobs to complete."
+                }
+            )
         
         # Enterprise Cost-Ceiling Guardrail with Atomic Reservation
         budget = getattr(project.input, "token_budget", 50000)
@@ -1644,6 +1798,16 @@ def public_submit_production(
                     "error": "BYOK_KEY_REQUIRED",
                     "provider": "elevenlabs",
                     "message": "Generating voiceover with ElevenLabs requires your ElevenLabs API key in Studio BYOK settings.",
+                }
+            )
+
+        # Enforce Production Admission Limiter (independent of cost ceiling)
+        if not production_admission_limiter.acquire(str(project_id)):
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "error": "CONCURRENCY_LIMIT_EXCEEDED",
+                    "message": f"Maximum concurrent production jobs ({MAX_CONCURRENT_PRODUCTION_JOBS_PER_PROJECT}) reached for this project. Please wait for active rendering jobs to complete."
                 }
             )
 
@@ -1685,8 +1849,8 @@ def public_mock_complete_production(project_id: UUID, job_id: str) -> Production
     if settings.app_env == "production":
         raise HTTPException(status_code=404, detail="Not Found")
     job = getattr(project_service.repository, "get_production_job", lambda _: None)(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="Production job not found")
+    if job is None or str(job.project_id) != str(project_id):
+        raise HTTPException(status_code=404, detail="Production job not found for this project")
     
     payload = {
         "status": "SUCCEEDED",
@@ -1698,6 +1862,7 @@ def public_mock_complete_production(project_id: UUID, job_id: str) -> Production
     }
     try:
         job = production_service.complete_callback(job, payload, project_service.repository)
+        production_admission_limiter.release(str(project_id))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return _production_response(job)
@@ -1866,6 +2031,9 @@ def public_get_youtube_upload_jobs(project_id: UUID):
 def public_mock_complete_youtube_upload(project_id: UUID, job_id: str, success: bool = True) -> YouTubeUploadJobResponse:
     if settings.app_env == "production":
         raise HTTPException(status_code=404, detail="Not Found")
+    job = getattr(project_service.repository, "get_youtube_upload_job", lambda _: None)(job_id)
+    if job is None or str(job.project_id) != str(project_id):
+        raise HTTPException(status_code=404, detail="YouTube upload job not found for this project")
     payload = {
         "status": "PUBLISHED" if success else "FAILED_PERMANENT",
         "youtube_video_id": f"yt-{uuid4().hex[:8]}" if success else "",
@@ -1882,7 +2050,8 @@ def public_mock_complete_youtube_upload(project_id: UUID, job_id: str, success: 
 
 @router.post("/api/byok/verify", tags=["byok"])
 def verify_byok_key(request_body: ByokVerifyRequest, request: Request):
-    client_ip = request.client.host if request.client else "127.0.0.1"
+    # OFF-03: Extract trusted client IP, ignoring spoofed X-Forwarded-For headers from untrusted origins
+    client_ip = get_trusted_client_ip(request)
     allowed, retry_after = verify_rate_limiter.is_allowed(client_ip)
     if not allowed:
         raise HTTPException(
@@ -1921,7 +2090,11 @@ def list_studio_presets():
     return studio_preset_service.list_presets()
 
 
-@router.post("/api/presets", tags=["presets"])
+@router.post(
+    "/api/presets",
+    tags=["presets"],
+    dependencies=[Depends(require_integration_auth)],
+)
 def create_studio_preset(data: Dict[str, Any]):
     from app.services.studio_preset_service import studio_preset_service
     if not data.get("name"):
@@ -1997,6 +2170,47 @@ def download_platform_export_file(
 
     if common != base_dir or not os.path.exists(target_file):
         raise HTTPException(status_code=404, detail="Requested export file not found.")
+
+    return FileResponse(target_file)
+
+
+@router.get(
+    "/api/projects/{project_id}/media/{media_type}/{file_name}",
+    tags=["media"],
+    dependencies=[Depends(require_project_owner)],
+)
+def get_project_media_file(
+    project_id: UUID,
+    media_type: str,
+    file_name: str,
+):
+    import re
+    from fastapi.responses import FileResponse
+    # Whitelist media directories
+    if media_type not in {"audio", "video", "output", "temp"}:
+        raise HTTPException(status_code=400, detail="Invalid media type requested.")
+
+    # Path traversal & filename sanitation checks
+    if any(sep in file_name for sep in ["..", "/", "\\", "%", "\x00"]) or not re.match(r"^[a-zA-Z0-9_.-]+$", file_name):
+        raise HTTPException(status_code=400, detail="Path traversal attempt blocked.")
+
+    if not any(file_name.endswith(ext) for ext in [".mp4", ".mp3", ".wav", ".json", ".vtt", ".txt"]):
+        raise HTTPException(status_code=400, detail="Forbidden media file format requested.")
+
+    # Verify media file name matches the project ID
+    if str(project_id) not in file_name:
+        raise HTTPException(status_code=403, detail="Requested media does not belong to this project.")
+
+    base_dir = os.path.abspath(f"app/static/{media_type}")
+    target_file = os.path.abspath(os.path.join(base_dir, file_name))
+
+    try:
+        common = os.path.commonpath([base_dir, target_file])
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Path traversal attempt blocked.")
+
+    if common != base_dir or not os.path.exists(target_file):
+        raise HTTPException(status_code=404, detail="Requested media file not found.")
 
     return FileResponse(target_file)
 

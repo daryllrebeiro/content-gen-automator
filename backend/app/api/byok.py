@@ -16,7 +16,12 @@ class SlidingWindowRateLimiter:
     def is_allowed(self, client_id: str) -> tuple[bool, int]:
         now = time.time()
         cutoff = now - self.window_seconds
-        self.requests[client_id] = [t for t in self.requests[client_id] if t > cutoff]
+        valid_requests = [t for t in self.requests.get(client_id, []) if t > cutoff]
+        if not valid_requests:
+            self.requests.pop(client_id, None)
+            self.requests[client_id] = [now]
+            return True, 0
+        self.requests[client_id] = valid_requests
         if len(self.requests[client_id]) >= self.max_requests:
             remaining = int(self.window_seconds - (now - self.requests[client_id][0]))
             return False, max(1, remaining)
@@ -24,6 +29,29 @@ class SlidingWindowRateLimiter:
         return True, 0
 
 verify_rate_limiter = SlidingWindowRateLimiter(max_requests=10, window_seconds=60)
+
+
+def get_trusted_client_ip(request: Request) -> str:
+    """Safely extracts client IP address.
+    
+    Only trusts X-Forwarded-For if the direct peer connection originates from
+    a verified local loopback or configured trusted proxy. Otherwise, falls back
+    strictly to request.client.host to prevent rate-limiter spoofing.
+    """
+    peer_ip = request.client.host if request.client else "127.0.0.1"
+    trusted_proxies = {"127.0.0.1", "::1", "localhost"}
+    env_proxies = os.getenv("TRUSTED_PROXIES", "")
+    if env_proxies:
+        trusted_proxies.update(p.strip() for p in env_proxies.split(",") if p.strip())
+
+    if peer_ip in trusted_proxies:
+        forwarded = request.headers.get("X-Forwarded-For")
+        if forwarded:
+            client_ip = forwarded.split(",")[0].strip()
+            if client_ip:
+                return client_ip
+
+    return peer_ip
 
 
 class ByokVerifyRequest(BaseModel):

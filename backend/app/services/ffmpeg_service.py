@@ -5,9 +5,24 @@ from typing import Dict, Any, Optional, List
 from app.domain.project import Project, Platform, PlatformExport
 from app.services.brand_kit_service import brand_kit_service, BrandKit
 
+DEFAULT_FFMPEG_TIMEOUT = 120.0
+
 class FFmpegAssemblyService:
-    def __init__(self) -> None:
+    def __init__(self, timeout: float = DEFAULT_FFMPEG_TIMEOUT) -> None:
         self.ffmpeg_path = shutil.which("ffmpeg")
+        self.timeout = timeout
+
+    def _run_ffmpeg(self, cmd: List[str]) -> None:
+        try:
+            subprocess.run(
+                cmd,
+                check=True,
+                timeout=self.timeout,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(f"FFmpeg execution timed out after {self.timeout} seconds") from exc
 
     def build_watermark_filter(self, brand_kit: BrandKit, video_stream: str = "[0:v]", watermark_stream: str = "[1:v]") -> str:
         """Constructs FFmpeg filtergraph for watermark logo overlay with opacity and positioning."""
@@ -76,7 +91,7 @@ class FFmpegAssemblyService:
                     "-shortest",
                     scene_output
                 ]
-                subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self._run_ffmpeg(cmd)
                 scene_outputs.append(scene_output)
 
             list_file_path = f"app/static/temp/{project_id}_list.txt"
@@ -95,7 +110,7 @@ class FFmpegAssemblyService:
                 "-c", "copy",
                 final_output_path
             ]
-            subprocess.run(concat_cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self._run_ffmpeg(concat_cmd)
             return final_output_path
         finally:
             try:
@@ -148,7 +163,7 @@ class FFmpegAssemblyService:
             "-c:a", "copy",
             path_1_1
         ]
-        subprocess.run(cmd_1_1, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self._run_ffmpeg(cmd_1_1)
         shutil.copyfile(source, path_9_16)
 
         return {
@@ -201,7 +216,7 @@ class FFmpegAssemblyService:
                         "-c:a", "copy",
                         out_path
                     ]
-                    subprocess.run(cmd_yt, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    self._run_ffmpeg(cmd_yt)
 
             elif plat_enum == Platform.TIKTOK:
                 out_path = f"app/static/output/{project_id}_tiktok_9_16.mp4"
@@ -219,7 +234,7 @@ class FFmpegAssemblyService:
                         "-c:a", "copy",
                         out_path
                     ]
-                    subprocess.run(cmd_tt, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    self._run_ffmpeg(cmd_tt)
 
             elif plat_enum == Platform.INSTAGRAM_REELS:
                 out_path = f"app/static/output/{project_id}_instagram_reels_9_16.mp4"
@@ -237,7 +252,7 @@ class FFmpegAssemblyService:
                         "-c:a", "copy",
                         out_path
                     ]
-                    subprocess.run(cmd_ig, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    self._run_ffmpeg(cmd_ig)
             else:
                 out_path = f"app/static/output/{project_id}_{plat_enum.value.lower()}.mp4"
                 aspect = "9:16"
