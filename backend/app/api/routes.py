@@ -462,6 +462,7 @@ def generate_first_prompt(
         model_tier = getattr(project.input, "model_tier", "flagship")
         user_byok_gemini = byok.gemini_api_key.strip() if byok.gemini_api_key else None
         gemini_key = resolve_gemini_key(byok)
+        active_gemini_key = user_byok_gemini or (gemini_key if os.getenv("LLM_PROVIDER", "mock").lower() == "gemini" else None)
 
         # 1. Enforce strict BYOK if BYOK_ENFORCED=true
         if is_byok_enforced() and os.getenv("LLM_PROVIDER", "mock").lower() == "gemini" and not user_byok_gemini:
@@ -496,7 +497,7 @@ def generate_first_prompt(
                     }
                 )
 
-        if not gemini_key and os.getenv("LLM_PROVIDER", "mock").lower() == "gemini":
+        if not active_gemini_key and os.getenv("LLM_PROVIDER", "mock").lower() == "gemini":
             raise HTTPException(
                 status_code=400,
                 detail={
@@ -517,13 +518,13 @@ def generate_first_prompt(
                 tone=project.input.tone or "cinematic",
                 facts=project.input.facts or [],
                 model_tier=model_tier,
-                gemini_api_key=gemini_key,
+                gemini_api_key=active_gemini_key,
             )
         except Exception as orchestrator_exc:
             logger.warning("ADK orchestrator trace notice: %s", orchestrator_exc)
 
         # 2. Advance Domain FSM & Generate Prompt
-        prompt = project_service.generate_next(project_id, gemini_api_key=gemini_key)
+        prompt = project_service.generate_next(project_id, gemini_api_key=active_gemini_key)
         latency = time.time() - t0
         
         # 3. IBM watsonx Governance Compliance Gate (Enforced & Blocking)
@@ -594,6 +595,7 @@ def regenerate_prompt(
         model_tier = getattr(project.input, "model_tier", "flagship")
         user_byok_gemini = byok.gemini_api_key.strip() if byok.gemini_api_key else None
         gemini_key = resolve_gemini_key(byok)
+        active_gemini_key = user_byok_gemini or (gemini_key if os.getenv("LLM_PROVIDER", "mock").lower() == "gemini" else None)
 
         # 1. Enforce strict BYOK if BYOK_ENFORCED=true
         if is_byok_enforced() and os.getenv("LLM_PROVIDER", "mock").lower() == "gemini" and not user_byok_gemini:
@@ -625,7 +627,7 @@ def regenerate_prompt(
                     }
                 )
 
-        if not gemini_key and os.getenv("LLM_PROVIDER", "mock").lower() == "gemini":
+        if not active_gemini_key and os.getenv("LLM_PROVIDER", "mock").lower() == "gemini":
             raise HTTPException(
                 status_code=400,
                 detail={
@@ -644,10 +646,10 @@ def regenerate_prompt(
             total_scenes=len(project.scenes),
             tone="regenerated",
             model_tier=model_tier,
-            gemini_api_key=gemini_key,
+            gemini_api_key=active_gemini_key,
         )
 
-        prompt = project_service.regenerate(project_id, scene_number, gemini_api_key=gemini_key)
+        prompt = project_service.regenerate(project_id, scene_number, gemini_api_key=active_gemini_key)
         latency = time.time() - t0
         
         # IBM watsonx Governance gate check

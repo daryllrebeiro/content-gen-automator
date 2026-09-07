@@ -252,7 +252,7 @@ class ProjectService:
         if existing is not None:
             return existing
 
-        if gemini_api_key and os.getenv("LLM_PROVIDER", "mock").lower() == "gemini":
+        if gemini_api_key:
             from app.providers.gemini import GeminiProvider
             from app.providers.reliability import RetryingProvider
             pipeline = PromptGenerationPipeline(
@@ -359,7 +359,7 @@ class ProjectService:
         history = project.prompt_history.setdefault(scene_number, [])
         history.append(current)
 
-        if gemini_api_key and os.getenv("LLM_PROVIDER", "mock").lower() == "gemini":
+        if gemini_api_key:
             from app.providers.gemini import GeminiProvider
             from app.providers.reliability import RetryingProvider
             pipeline = PromptGenerationPipeline(
