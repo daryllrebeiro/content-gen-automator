@@ -321,6 +321,25 @@ class SqlProjectRepository:
                 session.add(IntegrationEventRecord(event_id=event.event_id, event_type=event.event_type, project_id=event.project_id, request_id=event.request_id, metadata_data=event.metadata))
                 session.commit()
 
+    def get_audit_events(self, project_id: str) -> list[AuditEvent]:
+        with Session(self.engine) as session:
+            records = session.scalars(
+                sa_select(IntegrationEventRecord)
+                .where(IntegrationEventRecord.project_id == project_id)
+                .order_by(IntegrationEventRecord.created_at)
+            ).all()
+            return [
+                AuditEvent(
+                    event_id=r.event_id,
+                    event_type=r.event_type,
+                    project_id=r.project_id,
+                    request_id=r.request_id,
+                    metadata=r.metadata_data or {},
+                    created_at=r.created_at,
+                )
+                for r in records
+            ]
+
     def save_approval_event(self, event: ApprovalEvent) -> None:
         with Session(self.engine) as session:
             if session.get(ApprovalEventRecord, event.event_id) is None:

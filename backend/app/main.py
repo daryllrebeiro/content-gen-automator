@@ -1,12 +1,14 @@
-from fastapi import FastAPI, Response, HTTPException, Depends
+from fastapi import FastAPI, Response, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 import os
+import hmac
 import json
 from uuid import UUID
 from typing import Dict, Any, List
 
 from app.api.byok import ByokCredentials, get_byok_credentials
+from app.api.integration_auth import require_integration_auth
 
 from app.api.routes import router
 from app.config import settings
@@ -21,18 +23,35 @@ from app.services.brand_kit_service import brand_kit_service
 
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from app.api.project_auth import require_project_owner
+from app.api.project_auth import require_project_owner, project_service
+
+is_prod = settings.app_env.lower() == "production"
 
 app = FastAPI(
     title="Agentic Cinema: ContentGenAutomator Studio Core",
     version="0.3.0",
     description="Stateful multi-agent orchestration for cinematic video generation, powered by Gemini Enterprise ADK and 5-partner ecosystem.",
+    docs_url=None if is_prod else "/docs",
+    redoc_url=None if is_prod else "/redoc",
+    openapi_url=None if is_prod else "/openapi.json",
 )
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.cors_origins),
-    allow_origin_regex=r"(https://.*\.replit\.(app|dev)|https?://(localhost|127\.0\.0\.1)(:\d+)?|https?://0\.0\.0\.0(:\d+)?)",
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=[
@@ -42,6 +61,7 @@ app.add_middleware(
         "X-Request-ID",
         "X-API-Key",
         "X-Project-Owner-Token",
+        "X-Expected-Version",
         "X-Gemini-API-Key",
         "X-Runway-API-Key",
         "X-Kling-API-Key",
@@ -73,7 +93,7 @@ app.include_router(router)
 
 # ── 1. Observability (Grafana Labs) ──────────────────────────────────────────
 
-@app.get("/metrics", tags=["observability"])
+@app.get("/metrics", tags=["observability"], dependencies=[Depends(require_integration_auth)])
 def get_prometheus_metrics():
     """Prometheus exposition format for Grafana Cloud scraper."""
     content = telemetry.generate_prometheus_metrics()
@@ -122,12 +142,26 @@ def get_partner_ecosystem_status():
 
 
 @app.post("/api/governance/inline-check", tags=["governance"])
-def inline_governance_check(payload: dict):
+def inline_governance_check(payload: dict, request: Request):
     """Debounced live-edit advisory check for studio editors."""
     text = payload.get("text", "")
-    project_id = payload.get("project_id", "")
+    raw_project_id = payload.get("project_id", "")
     policy_pack = payload.get("policy_pack", "general_audience")
-    return ibm_governance.audit_prompt(text, project_id=project_id, policy_pack=policy_pack)
+
+    # OFF-07: Audit Poisoning Defense: Only attribute audit events to project_id if caller is verified owner
+    effective_project_id = ""
+    if raw_project_id:
+        owner_token = request.headers.get("X-Project-Owner-Token")
+        try:
+            from uuid import UUID
+            p_uuid = UUID(raw_project_id)
+            proj = project_service.repository.get(p_uuid)
+            if owner_token and getattr(proj, "owner_token", None) and hmac.compare_digest(owner_token, proj.owner_token):
+                effective_project_id = str(raw_project_id)
+        except Exception:
+            effective_project_id = ""
+
+    return ibm_governance.audit_prompt(text, project_id=effective_project_id, policy_pack=policy_pack)
 
 # ── 4. Parallel Research & Grounding ──────────────────────────────────────────
 
@@ -188,17 +222,32 @@ def get_studio_brand_kit(studio_id: str = "studio_default"):
 )
 def export_soc2_audit_log(project_id: UUID):
     """Exports full SOC2-style event audit log for compliance inspection."""
+    from datetime import datetime, timezone
+    from app.services.project_service import ProjectNotFoundError
+    try:
+        project = project_service.repository.get(project_id)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+
+    repo = project_service.repository
+    raw_events = repo.get_audit_events(str(project_id)) if hasattr(repo, "get_audit_events") else []
+    
+    event_records = [
+        {
+            "event_id": e.event_id,
+            "event": e.event_type.upper().replace(".", "_"),
+            "timestamp": e.created_at.isoformat() if hasattr(e.created_at, "isoformat") else str(e.created_at),
+            "metadata": e.metadata,
+        }
+        for e in raw_events
+    ]
     return {
         "project_id": str(project_id),
+        "topic": project.input.topic,
         "format": "SOC2_TYPE_II_COMPLIANT_EVENT_STREAM",
-        "exported_at": "2026-09-02T12:00:00Z",
-        "event_records": [
-            {"event": "PROJECT_INITIALIZED", "actor": "Director", "timestamp": "2026-09-02T11:50:00Z"},
-            {"event": "PARALLEL_GROUNDING_ATTACHED", "source": "Parallel Search API", "timestamp": "2026-09-02T11:50:02Z"},
-            {"event": "GEMINI_ADK_PROMPT_SYNTHESIZED", "model": "gemini-2.5-flash", "timestamp": "2026-09-02T11:50:05Z"},
-            {"event": "IBM_WATSONX_GOVERNANCE_CERTIFIED", "verdict": "PASSED", "risk": 0.03, "timestamp": "2026-09-02T11:50:06Z"},
-            {"event": "PUBLISHING_GATES_VERIFIED", "passed": "7/7", "timestamp": "2026-09-02T11:50:10Z"}
-        ]
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "event_count": len(event_records),
+        "event_records": event_records,
     }
 
 
@@ -206,5 +255,3 @@ os.makedirs("app/static/audio", exist_ok=True)
 os.makedirs("app/static/video", exist_ok=True)
 os.makedirs("app/static/output", exist_ok=True)
 os.makedirs("app/static/branding", exist_ok=True)
-
-app.mount("/static", StaticFiles(directory="app/static"), name="static")

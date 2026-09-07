@@ -33,7 +33,13 @@ class Settings:
         if app_env == "production" and not signing_secret:
             raise RuntimeError("EXPORT_SIGNING_SECRET is required when APP_ENV=production.")
         if not signing_secret:
-            signing_secret = secrets.token_hex(32)
+            signing_secret = "cga-dev-static-export-signing-secret-v1"
+
+        integration_token = os.getenv("INTEGRATION_SERVICE_TOKEN", "")
+        if app_env == "production" and not integration_token:
+            raise RuntimeError("INTEGRATION_SERVICE_TOKEN is required when APP_ENV=production.")
+        if not integration_token:
+            integration_token = "cga-dev-integration-service-token-v1"
 
         origins = tuple(item.strip() for item in os.getenv("CORS_ORIGINS", "http://localhost:3000,https://content-gen-automator.replit.app").split(",") if item.strip())
         return cls(
@@ -45,7 +51,7 @@ class Settings:
             gemini_api_key=gemini_key,
             gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
             cors_origins=origins,
-            integration_service_token=os.getenv("INTEGRATION_SERVICE_TOKEN", ""),
+            integration_service_token=integration_token,
             export_signing_secret=signing_secret,
         )
 

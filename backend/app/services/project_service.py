@@ -67,7 +67,12 @@ class InMemoryProjectRepository:
         self._idempotency[record.key] = record
 
     def save_audit_event(self, event: AuditEvent) -> None:
-        self.audit_events.append(event)
+        with self._lock:
+            self.audit_events.append(event)
+
+    def get_audit_events(self, project_id: str) -> list[AuditEvent]:
+        with self._lock:
+            return [e for e in self.audit_events if e.project_id == project_id]
 
     def save_approval_event(self, event: ApprovalEvent) -> None:
         self.approval_events.append(event)
@@ -238,8 +243,10 @@ class ProjectService:
             event = AuditEvent.now(hashlib.sha256(f"{event_type}:{project_id}:{datetime.now(timezone.utc).timestamp()}".encode()).hexdigest()[:24], event_type, project_id, request_id, metadata)
             self.repository.save_audit_event(event)
 
-    def generate_next(self, project_id: UUID, gemini_api_key: str | None = None) -> VideoPrompt:
+    def generate_next(self, project_id: UUID, gemini_api_key: str | None = None, expected_version: int | None = None) -> VideoPrompt:
         project = self.repository.get(project_id)
+        if expected_version is not None and getattr(project, "version", 0) != expected_version:
+            raise ProjectStateError(f"Concurrency conflict: Project version mismatch (expected {expected_version}, got {getattr(project, 'version', 0)}).")
         next_number = project.current_scene_number + 1
         if next_number > len(project.scenes):
             if project.scenes and project.scenes[-1].number in project.prompts:
@@ -271,7 +278,7 @@ class ProjectService:
         project.status = (
             ProjectStatus.PROMPT_APPROVAL_PENDING
         )
-        self.repository.save(project)
+        self.repository.save(project, expected_version=expected_version)
         self._audit("prompt.generated", str(project.id), metadata={"scene_number": next_number, "version": prompt.version_number})
         return prompt
 
@@ -348,8 +355,10 @@ class ProjectService:
         self._audit("facts.verification_completed", str(project.id), metadata={"job_id": job_id, "verified_count": job.verified_count, "failed_count": job.failed_count})
         return job
 
-    def regenerate(self, project_id: UUID, scene_number: int, gemini_api_key: str | None = None) -> VideoPrompt:
+    def regenerate(self, project_id: UUID, scene_number: int, gemini_api_key: str | None = None, expected_version: int | None = None) -> VideoPrompt:
         project = self.repository.get(project_id)
+        if expected_version is not None and getattr(project, "version", 0) != expected_version:
+            raise ProjectStateError(f"Concurrency conflict: Project version mismatch (expected {expected_version}, got {getattr(project, 'version', 0)}).")
         if scene_number < 1 or scene_number > len(project.scenes):
             raise ProjectStateError("Scene number is outside this project.")
         if scene_number not in project.prompts:
@@ -376,6 +385,6 @@ class ProjectService:
         regenerated.version_number = current.version_number + 1
         regenerated.template_version = current.template_version
         project.prompts[scene_number] = regenerated
-        self.repository.save(project)
+        self.repository.save(project, expected_version=expected_version)
         self._audit("prompt.regenerated", str(project.id), metadata={"scene_number": scene_number, "version": regenerated.version_number})
         return regenerated

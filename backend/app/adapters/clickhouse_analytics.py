@@ -1,5 +1,6 @@
 import os
 import time
+from collections import deque
 from datetime import datetime, timezone
 from typing import Dict, List, Any
 
@@ -14,7 +15,7 @@ class ClickHouseAnalyticsAdapter:
         self.user = os.getenv("CLICKHOUSE_USER", "default")
         self.password = os.getenv("CLICKHOUSE_PASSWORD", "")
         self.database = os.getenv("CLICKHOUSE_DB", "agentic_cinema")
-        self._events: List[Dict[str, Any]] = []
+        self._events: deque = deque(maxlen=1000)
         self._performance_records: Dict[str, Any] = {}
         self._client = None
         self._init_connection()
@@ -113,7 +114,7 @@ class ClickHouseAnalyticsAdapter:
             "status": "connected" if self._client else "active_engine",
             "total_events_recorded": len(self._events),
             "command_center": self.get_command_center_feed(),
-            "recent_events": self._events[-10:] if self._events else []
+            "recent_events_count": len(self._events)
         }
 
 

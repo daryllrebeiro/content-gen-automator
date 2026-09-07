@@ -1,5 +1,6 @@
 import os
 import time
+from collections import OrderedDict
 from typing import Dict, List, Any
 import httpx
 from app.adapters.grafana_telemetry import telemetry
@@ -13,7 +14,13 @@ class ParallelSearchAdapter:
     def __init__(self):
         self.api_key = os.getenv("PARALLEL_API_KEY", "")
         self.endpoint = os.getenv("PARALLEL_API_ENDPOINT", "https://api.parallel.ai/v1/search")
-        self._cache: Dict[str, Dict[str, Any]] = {}
+        self._cache: OrderedDict[str, Dict[str, Any]] = OrderedDict()
+        self._max_cache_size: int = 200
+
+    def _set_cache(self, key: str, value: Dict[str, Any]):
+        if len(self._cache) >= self._max_cache_size:
+            self._cache.popitem(last=False)
+        self._cache[key] = value
 
     def research_topic(self, topic: str, tone: str = "curious documentary") -> Dict[str, Any]:
         """
@@ -23,6 +30,7 @@ class ParallelSearchAdapter:
         cache_key = f"{topic.lower().strip()}:{tone.lower().strip()}"
         
         if cache_key in self._cache:
+            self._cache.move_to_end(cache_key)
             telemetry.record_parallel_search(cache_hit=True)
             return self._cache[cache_key]
 
@@ -55,7 +63,7 @@ class ParallelSearchAdapter:
                         "audience_hook": f"Did you know the untold reality behind {topic}?",
                         "search_latency_ms": round((time.time() - start_time) * 1000, 2)
                     }
-                    self._cache[cache_key] = result
+                    self._set_cache(cache_key, result)
                     telemetry.record_parallel_search(cache_hit=False)
                     return result
             except Exception as e:
@@ -81,7 +89,7 @@ class ParallelSearchAdapter:
             "audience_hook": f"You won't believe what happens when {topic} is seen up close.",
             "search_latency_ms": round((time.time() - start_time) * 1000, 2)
         }
-        self._cache[cache_key] = result
+        self._set_cache(cache_key, result)
         return result
 
     def reverify_facts(self, topic: str, facts: List[str]) -> Dict[str, Any]:
