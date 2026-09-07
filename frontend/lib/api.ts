@@ -213,30 +213,43 @@ export type ByokKeys = {
 
 export const BYOK_STORAGE_KEY = "cga_byok_keys";
 
+// In-memory fallback if browser storage is restricted or disabled
+let _inMemoryKeys: ByokKeys = {};
+
 export function getStoredByokKeys(): ByokKeys {
   if (typeof window === "undefined") return {};
   try {
-    const raw = localStorage.getItem(BYOK_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : {};
+    // Migration: purge any insecure plaintext legacy localStorage keys
+    if (localStorage.getItem(BYOK_STORAGE_KEY)) {
+      localStorage.removeItem(BYOK_STORAGE_KEY);
+    }
+    const raw = sessionStorage.getItem(BYOK_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : _inMemoryKeys;
   } catch {
-    return {};
+    return _inMemoryKeys;
   }
 }
 
 export function saveStoredByokKeys(keys: ByokKeys): void {
+  _inMemoryKeys = { ...keys };
   if (typeof window === "undefined") return;
   try {
-    localStorage.setItem(BYOK_STORAGE_KEY, JSON.stringify(keys));
+    // Ensure legacy persistent localStorage is cleaned
+    localStorage.removeItem(BYOK_STORAGE_KEY);
+    sessionStorage.setItem(BYOK_STORAGE_KEY, JSON.stringify(keys));
     window.dispatchEvent(new CustomEvent("byok-keys-updated", { detail: keys }));
   } catch (e) {
-    console.error("Failed to save BYOK keys to localStorage", e);
+    console.warn("Storage restricted; keeping BYOK keys in-memory for session", e);
+    window.dispatchEvent(new CustomEvent("byok-keys-updated", { detail: keys }));
   }
 }
 
 export function clearStoredByokKeys(): void {
+  _inMemoryKeys = {};
   if (typeof window === "undefined") return;
   try {
     localStorage.removeItem(BYOK_STORAGE_KEY);
+    sessionStorage.removeItem(BYOK_STORAGE_KEY);
     window.dispatchEvent(new CustomEvent("byok-keys-updated", { detail: {} }));
   } catch (e) {
     console.error("Failed to clear BYOK keys", e);
