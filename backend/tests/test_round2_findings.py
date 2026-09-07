@@ -30,7 +30,7 @@ def test_q1_cost_ceiling_race_condition_at_boundary():
     proj_id = res.json()["id"]
     owner_token = res.json()["owner_token"]
     client.post(f"/api/projects/{proj_id}/generate", headers={"X-Project-Owner-Token": owner_token})
-    client.post(f"/api/projects/{proj_id}/prompts/1/approve", json={"actor": "tester"}, headers={"X-Project-Owner-Token": owner_token})
+    client.post(f"/api/projects/{proj_id}/prompts/1/approve", json={"actor": "tester"}, headers={"X-Project-Owner-Token": owner_token, "X-Expected-Version": "2"})
 
     # At exact boundary (5000 == 5000): all 10 concurrent requests must be rejected with 429
     telemetry.project_tokens[str(proj_id)] = 5000
@@ -132,7 +132,7 @@ def test_r2_provider_key_mismatch_upfront_rejection():
     proj_id = res.json()["id"]
     owner_token = res.json()["owner_token"]
     client.post(f"/api/projects/{proj_id}/generate", headers={"X-Project-Owner-Token": owner_token})
-    client.post(f"/api/projects/{proj_id}/prompts/1/approve", json={"actor": "tester"}, headers={"X-Project-Owner-Token": owner_token})
+    client.post(f"/api/projects/{proj_id}/prompts/1/approve", json={"actor": "tester"}, headers={"X-Project-Owner-Token": owner_token, "X-Expected-Version": "2"})
 
     # Submit production clip providing Runway key for Kling provider
     resp = client.post(

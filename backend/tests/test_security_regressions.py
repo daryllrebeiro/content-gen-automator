@@ -247,3 +247,113 @@ def test_finding_j_validation_error_truncation():
     # The raw response must NOT contain the 50,000-char string
     assert len(raw_response) < 2000, f"Validation response should be compact, got {len(raw_response)} bytes"
     assert "[truncated" in raw_response
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Security Audit Remediation Regressions (SEC-01 through SEC-10)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_sec01_integration_auth_fail_closed_without_token():
+    """SEC-01: Integration endpoints must reject unauthenticated requests with 401."""
+    res = client.post(
+        "/api/integrations/projects",
+        json={"topic": "Unauthenticated Integration Probe", "duration_seconds": 10},
+        headers={"Skip-Auto-Integration-Token": "true"},
+    )
+    assert res.status_code == 401, f"Expected 401, got {res.status_code}"
+
+
+def test_sec02_compliance_certificate_verdict_tampering_rejected():
+    """SEC-02: Tampering with overall_compliance_verdict or composite_risk_score must invalidate certificate."""
+    cert = compliance_certificate_service.generate_certificate(
+        project_id=str(uuid4()),
+        topic="Authentic Topic",
+        policy_pack_id="general_audience",
+        audit_records=[{"decision": "flagged", "risk_score": 0.88}],
+        manifest_id="manifest-001",
+    )
+    # Valid as generated
+    assert compliance_certificate_service.verify_certificate(cert) is True
+
+    # 1. Tamper verdict
+    tampered_verdict = dict(cert, overall_compliance_verdict="CERTIFIED_COMPLIANT")
+    assert compliance_certificate_service.verify_certificate(tampered_verdict) is False
+
+    # 2. Tamper risk score
+    tampered_score = dict(cert, composite_risk_score=0.01)
+    assert compliance_certificate_service.verify_certificate(tampered_score) is False
+
+    # 3. Tamper topic
+    tampered_topic = dict(cert, topic="Tampered Injected Topic")
+    assert compliance_certificate_service.verify_certificate(tampered_topic) is False
+
+    # 4. Tamper audit ledger
+    tampered_ledger = dict(cert, audit_ledger=[{"decision": "passed", "risk_score": 0.01}])
+    assert compliance_certificate_service.verify_certificate(tampered_ledger) is False
+
+
+def test_sec03_unauthenticated_static_media_mount_removed():
+    """SEC-03: Arbitrary unauthenticated GET on /static/ must return 404 (static mount removed)."""
+    res = client.get("/static/output/secret_render.mp4")
+    assert res.status_code == 404, f"Expected 404 for removed static mount, got {res.status_code}"
+
+
+def test_sec05_governance_policy_pack_creation_requires_auth():
+    """SEC-05: POST /api/governance/policy-packs must reject unauthenticated requests."""
+    res = client.post(
+        "/api/governance/policy-packs",
+        json={
+            "id": "unauthorized_pack",
+            "name": "Unauthorized Pack",
+            "description": "Probe",
+            "max_risk_score_allowed": 1.0,
+        },
+        headers={"Skip-Auto-Integration-Token": "true"},
+    )
+    assert res.status_code == 401, f"Expected 401, got {res.status_code}"
+
+
+def test_sec05_preset_creation_requires_auth():
+    """SEC-05: POST /api/presets must reject unauthenticated requests."""
+    res = client.post(
+        "/api/presets",
+        json={"name": "Attacker Injected Preset"},
+        headers={"Skip-Auto-Integration-Token": "true"},
+    )
+    assert res.status_code == 401, f"Expected 401, got {res.status_code}"
+
+
+def test_sec06_clickhouse_analytics_does_not_leak_recent_events():
+    """SEC-06: /api/analytics/clickhouse must not expose other tenants' project IDs and topics."""
+    res = client.get("/api/analytics/clickhouse")
+    assert res.status_code == 200
+    data = res.json()
+    assert "recent_events" not in data, "recent_events with raw project metadata must not be exposed"
+
+
+def test_sec07_byok_rate_limiter_purges_stale_ips():
+    """SEC-07: SlidingWindowRateLimiter must delete stale client IDs to prevent memory leaks."""
+    import time
+    from app.api.byok import SlidingWindowRateLimiter
+    limiter = SlidingWindowRateLimiter(max_requests=2, window_seconds=1)
+    client_id = "test-ephemeral-ip-123"
+    allowed, _ = limiter.is_allowed(client_id)
+    assert allowed is True
+    assert client_id in limiter.requests
+    # Advance time beyond window
+    time.sleep(1.05)
+    # Subsequent check should purge and reset
+    allowed, _ = limiter.is_allowed(client_id)
+    assert allowed is True
+    assert len(limiter.requests[client_id]) == 1
+
+
+def test_sec10_security_headers_present():
+    """SEC-10: FastAPI responses must include security hardening headers."""
+    res = client.get("/health")
+    assert res.status_code == 200
+    headers = res.headers
+    assert headers.get("X-Content-Type-Options") == "nosniff"
+    assert headers.get("X-Frame-Options") == "DENY"
+    assert headers.get("Referrer-Policy") == "strict-origin-when-cross-origin"
+    assert "Strict-Transport-Security" in headers

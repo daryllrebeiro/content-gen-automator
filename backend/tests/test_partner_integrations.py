@@ -146,7 +146,7 @@ def test_cost_ceiling_enforcement_halts_production():
     telemetry.record_prompt_generation(0.1, input_tokens=800, output_tokens=800, project_id=str(p_id))
     
     # 3. Approve prompt
-    appr = client.post(f"/api/projects/{p_id}/prompts/1/approve", json={"decision": "APPROVE", "actor": "director"})
+    appr = client.post(f"/api/projects/{p_id}/prompts/1/approve", json={"decision": "APPROVE", "actor": "director"}, headers={"X-Expected-Version": "2"})
     assert appr.status_code == 200
 
     # Submitting production job must fail with HTTP 429 Cost Ceiling Exceeded

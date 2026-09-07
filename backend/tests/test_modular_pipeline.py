@@ -61,7 +61,7 @@ def test_production_pipeline_mock_fallback():
     assert gen_resp.status_code == 200
 
     # 2. Approve prompt for scene 1
-    app_resp = client.post(f"/api/projects/{proj_id}/prompts/1/approve", json={"actor": "user", "comment": "looks good"})
+    app_resp = client.post(f"/api/projects/{proj_id}/prompts/1/approve", json={"actor": "user", "comment": "looks good"}, headers={"X-Expected-Version": "2"})
     assert app_resp.status_code == 200
 
     # 3. Submit production clip (which triggers background tasks)

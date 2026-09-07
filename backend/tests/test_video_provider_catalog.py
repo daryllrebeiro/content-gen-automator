@@ -71,7 +71,7 @@ def test_video_provider_pipeline_missing_credentials_records_descriptive_error(m
 
     # Generate and approve prompt
     client.post(f"/api/projects/{proj_id}/prompts/next")
-    client.post(f"/api/projects/{proj_id}/prompts/1/approve", json={"actor": "director"})
+    client.post(f"/api/projects/{proj_id}/prompts/1/approve", json={"actor": "director"}, headers={"X-Expected-Version": "2"})
 
     # Submit production
     prod_resp = client.post(f"/api/projects/{proj_id}/scenes/1/production")

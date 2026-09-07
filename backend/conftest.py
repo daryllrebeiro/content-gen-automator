@@ -9,10 +9,16 @@ if str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
 
 import app
+from app.config import settings
+
+TEST_INTEGRATION_TOKEN = "test-integration-service-token-secret"
+if not settings.integration_service_token:
+    object.__setattr__(settings, "integration_service_token", TEST_INTEGRATION_TOKEN)
 
 # Mirror frontend SDK behavior (like frontend/lib/api.ts):
 # Keep track of project owner tokens,
 # and automatically inject X-Project-Owner-Token for /api/projects/{project_id}/*
+# and Authorization: Bearer for /api/integrations/*
 # unless the caller explicitly supplied headers (or passed empty token / Skip-Auto-Owner-Token).
 
 _test_project_tokens: dict[str, str] = {}
@@ -21,6 +27,16 @@ _original_request = TestClient.request
 def _auto_token_request(self, method, url, *args, **kwargs):
     headers = dict(kwargs.get("headers") or {})
     url_str = str(url)
+
+    # Automatic integration token injection for integration and admin endpoints
+    if any(prefix in url_str for prefix in ("/api/integrations", "/api/governance/policy-packs", "/api/presets", "/metrics")):
+        if "Authorization" not in headers and not headers.get("Skip-Auto-Integration-Token"):
+            headers["Authorization"] = f"Bearer {settings.integration_service_token}"
+            kwargs["headers"] = headers
+
+    if "Skip-Auto-Integration-Token" in headers:
+        del headers["Skip-Auto-Integration-Token"]
+        kwargs["headers"] = headers
 
     m = re.search(r"/api/(?:projects|telemetry/budget-status|exports)/([0-9a-fA-F-]+)", url_str)
     if m:
@@ -67,3 +83,12 @@ def _auto_token_request(self, method, url, *args, **kwargs):
     return response
 
 TestClient.request = _auto_token_request
+
+import pytest
+
+@pytest.fixture(autouse=True)
+def reset_rate_limiters():
+    from app.api.routes import project_creation_limiter
+    project_creation_limiter.requests.clear()
+    yield
+
