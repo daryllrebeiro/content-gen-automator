@@ -115,7 +115,7 @@ gcloud run deploy "$SERVICE_NAME" \
   --project "$PROJECT_ID" \
   --allow-unauthenticated \
   --set-secrets "GEMINI_API_KEY=${SECRET_NAME}:latest" \
-  --update-env-vars "APP_ENV=production,GEMINI_MODEL=gemini-2.5-flash" \
+  --update-env-vars "APP_ENV=production,GEMINI_MODEL=gemini-3.6-flash" \
   --port 8000 \
   --cpu 1 \
   --memory 1Gi \

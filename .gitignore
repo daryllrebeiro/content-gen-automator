@@ -35,3 +35,8 @@ backend/app/static/
 app/static/
 .storage/
 
+# Scratch & temporary artifacts
+scratch/
+backend/scratch/
+
+
