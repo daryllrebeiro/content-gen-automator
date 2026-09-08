@@ -39,4 +39,8 @@ app/static/
 scratch/
 backend/scratch/
 
+# Outputs
+outputs/*.mp4
+!outputs/.gitkeep
+
 
