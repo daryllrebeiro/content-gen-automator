@@ -1328,7 +1328,7 @@ export default function HomePage() {
               >
                 {(modelTiersCatalog.length > 0 ? modelTiersCatalog : [
                   { id: "fast_draft", display_name: "⚡ Fast Draft (Cost-Optimized Gemma)", estimated_cost_per_draft: "$0.0002", estimated_latency_ms: "950ms", metric_type: "Estimated Baseline Model Rate" },
-                  { id: "flagship", display_name: "👑 Flagship (Gemini 2.5 Flash Reasoning)", estimated_cost_per_draft: "$0.0010", estimated_latency_ms: "2400ms", metric_type: "Estimated Baseline Model Rate" },
+                  { id: "flagship", display_name: "👑 Flagship (Gemini 3.8 Flash Reasoning)", estimated_cost_per_draft: "$0.0010", estimated_latency_ms: "2400ms", metric_type: "Estimated Baseline Model Rate" },
                 ]).map((tier: any) => (
                   <option key={tier.id} value={tier.id}>
                     {tier.display_name} — ~{tier.estimated_cost_per_draft}/draft, ~{tier.estimated_latency_ms} ({tier.metric_type || "Estimated Baseline"})
