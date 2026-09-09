@@ -44,7 +44,13 @@ class GeminiProvider:
                 except Exception as exc:
                     err_str = str(exc)
                     last_error = exc
-                    if any(k in err_str for k in ("503", "UNAVAILABLE", "high demand", "RESOURCE_EXHAUSTED", "429", "Overloaded")):
+                    # If daily/project quota is hard exhausted for this model, switch immediately to alternate model
+                    if any(q in err_str for q in ("FreeTier", "quotaId", "DailyPerProject", "limit: 0", "limit: 20")):
+                        break
+                    if any(k in err_str for k in ("503", "UNAVAILABLE", "high demand", "Overloaded")):
+                        time.sleep(1.0 * attempt)
+                        continue
+                    if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
                         time.sleep(1.5 * attempt)
                         continue
                     break

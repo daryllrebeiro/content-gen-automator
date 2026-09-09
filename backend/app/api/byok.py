@@ -242,6 +242,25 @@ def verify_gemini_key(api_key: str) -> Dict[str, Any]:
         client = genai.Client(api_key=clean_key)
         # Attempt a lightweight zero-generation model probe
         models_pager = client.models.list(config={"page_size": 1})
+        try:
+            client.models.generate_content(
+                model="gemini-3.7-flash",
+                contents="ping",
+            )
+        except Exception as probe_exc:
+            err_str = str(probe_exc)
+            if "prepayment credits are depleted" in err_str.lower():
+                return {
+                    "valid": False,
+                    "provider": "gemini",
+                    "message": "Google AI Studio prepayment credits are depleted. Please top up your prepayment balance at https://ai.studio/projects (Billing > Prepay).",
+                }
+            if any(k in err_str for k in ("429", "resource_exhausted", "quota")):
+                return {
+                    "valid": False,
+                    "provider": "gemini",
+                    "message": "Google Gemini API quota or rate limit exceeded. Check usage at https://ai.dev/rate-limit.",
+                }
         return {
             "valid": True,
             "provider": "gemini",

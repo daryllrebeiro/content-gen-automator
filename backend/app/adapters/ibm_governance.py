@@ -117,15 +117,21 @@ class IBMGovernanceAdapter:
         normalized_target = _normalize_text(f"{prompt_text} {visual_style} {decoded_b64}")
 
         # Copyright / IP likeness patterns
-        copyright_triggers = ["mickey mouse", "batman", "marvel", "disney", "superman", "pikachu", "nike logo"]
+        copyright_triggers = ["mickey mouse", "batman", "marvel studios", "marvel comics", "marvel cinematic", "disney", "superman", "pikachu", "nike logo"]
         forbidden_terms = ["violence", "nsfw", "gore", "hate speech", "explicit", "trademark_infringement", "weapon", "chemical weapon", "biological weapon", "explosive", "bomb"]
 
         # Stricter triggers for Kids & Family
         if policy_pack == "kids_family":
             forbidden_terms.extend(["scary", "monster", "dark abyss", "frightening", "blood"])
 
-        found_copyright = [term for term in copyright_triggers if term in normalized_target]
-        found_safety = [term for term in forbidden_terms if term in normalized_target]
+        found_copyright = [
+            term for term in copyright_triggers
+            if re.search(r'\b' + re.escape(term) + r'\b', normalized_target)
+        ]
+        found_safety = [
+            term for term in forbidden_terms
+            if re.search(r'\b' + re.escape(term) + r'\b', normalized_target)
+        ]
 
         # Compute dynamic risk score
         base_risk = 0.02

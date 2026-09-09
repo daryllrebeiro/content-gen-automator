@@ -190,7 +190,7 @@ class ProjectService:
             return RetryingProvider(
                 GeminiProvider(api_key=gemini_key),
                 max_attempts=int(os.getenv("PROVIDER_MAX_ATTEMPTS", "3")),
-                timeout_seconds=float(os.getenv("PROVIDER_TIMEOUT_SECONDS", "30")),
+                timeout_seconds=float(os.getenv("PROVIDER_TIMEOUT_SECONDS", "120")),
             )
         except Exception:
             from app.providers.mock import MockProvider
@@ -209,7 +209,7 @@ class ProjectService:
                 RetryingProvider(
                     GeminiProvider(api_key=gemini_api_key),
                     max_attempts=int(os.getenv("PROVIDER_MAX_ATTEMPTS", "3")),
-                    timeout_seconds=float(os.getenv("PROVIDER_TIMEOUT_SECONDS", "30")),
+                    timeout_seconds=float(os.getenv("PROVIDER_TIMEOUT_SECONDS", "120")),
                 )
             )
             architect.create(project)
@@ -266,7 +266,7 @@ class ProjectService:
                 RetryingProvider(
                     GeminiProvider(api_key=gemini_api_key),
                     max_attempts=int(os.getenv("PROVIDER_MAX_ATTEMPTS", "3")),
-                    timeout_seconds=float(os.getenv("PROVIDER_TIMEOUT_SECONDS", "30")),
+                    timeout_seconds=float(os.getenv("PROVIDER_TIMEOUT_SECONDS", "120")),
                 )
             )
             prompt = pipeline.generate(project, project.scenes[next_number - 1])
@@ -375,7 +375,7 @@ class ProjectService:
                 RetryingProvider(
                     GeminiProvider(api_key=gemini_api_key),
                     max_attempts=int(os.getenv("PROVIDER_MAX_ATTEMPTS", "3")),
-                    timeout_seconds=float(os.getenv("PROVIDER_TIMEOUT_SECONDS", "30")),
+                    timeout_seconds=float(os.getenv("PROVIDER_TIMEOUT_SECONDS", "120")),
                 )
             )
             regenerated = pipeline.generate(project, project.scenes[scene_number - 1])

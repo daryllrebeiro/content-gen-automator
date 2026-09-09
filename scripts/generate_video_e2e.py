@@ -15,6 +15,12 @@ import argparse
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 # Ensure UTF-8 output on Windows consoles
 if sys.platform.startswith("win"):
     try:
@@ -451,7 +457,7 @@ def generate_video_e2e(
         f.write(downloaded_bytes)
 
     is_real_rendered = (
-        effective_video_provider not in {"mock", "gemini_omni"}
+        effective_video_provider not in {"mock"}
         and len(downloaded_bytes) > 1024
         and not downloaded_bytes.startswith(b"EXPORT_")
         and not downloaded_bytes.startswith(b"MOCK")

@@ -602,10 +602,22 @@ def generate_first_prompt(
             prompt_text=f"{project.input.topic} {prompt.text}",
             project_id=str(project_id)
         )
-        if gov_audit.get("decision") != "passed":
+        if str(gov_audit.get("decision", "")).lower() not in {"passed", "compliant", "approved"}:
+            brand_safety_check = gov_audit.get("policy_checks", {}).get("brand_safety", "")
+            copyright_check = gov_audit.get("policy_checks", {}).get("copyright_clearance", "")
+            categories = gov_audit.get("categories_flagged", [])
+            if categories:
+                violation_reason = f"Flagged categories: {', '.join(str(c) for c in categories)}"
+            elif brand_safety_check and brand_safety_check != "Compliant":
+                violation_reason = brand_safety_check
+            elif copyright_check and copyright_check != "Clear":
+                violation_reason = copyright_check
+            else:
+                violation_reason = gov_audit.get("copyright_risk") or "High risk score"
+
             raise HTTPException(
                 status_code=422,
-                detail=f"IBM watsonx.governance safety violation: {gov_audit.get('policy_checks', {}).get('brand_safety') or gov_audit.get('copyright_risk') or 'High risk score'}. Scene progression halted."
+                detail=f"IBM watsonx.governance safety violation: {violation_reason}. Scene progression halted."
             )
 
         # 4. Partner Telemetry Collection
