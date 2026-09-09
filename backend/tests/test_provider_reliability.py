@@ -39,7 +39,7 @@ def test_retrying_provider_enforces_timeout():
     class SlowProvider:
         name = "slow"
         def generate_json(self, **kwargs):
-            time.sleep(0.15)
+            time.sleep(0.4)
             return {"text": "Too late."}
 
     with pytest.raises(ProviderFailure) as error:

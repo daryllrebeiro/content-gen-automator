@@ -5,7 +5,7 @@
 [![Next.js: 15+](https://img.shields.io/badge/Next.js-15-black.svg)](https://nextjs.org/)
 [![Gemini: 2.5 Flash](https://img.shields.io/badge/Gemini-2.5%20Flash-orange.svg)](https://cloud.google.com/vertex-ai)
 [![IBM: watsonx](https://img.shields.io/badge/IBM-watsonx.governance-purple.svg)](https://www.ibm.com/products/watsonx-governance)
-[![Tests: 132 Passing](https://img.shields.io/badge/Tests-132%20Passing-brightgreen.svg)](backend/tests/)
+[![Tests: 181 Passing](https://img.shields.io/badge/Tests-181%20Passing-brightgreen.svg)](backend/tests/)
 [![Gates: 7/8 Passing](https://img.shields.io/badge/Verification%20Gates-7%2F8%20Pass-success.svg)](scripts/final_gate_check.py)
 [![Cloud Run: Live](https://img.shields.io/badge/Cloud%20Run-Live-blue.svg)](https://content-gen-automator-backend-78123600362.us-central1.run.app)
 [![Replit: Live](https://img.shields.io/badge/Replit-Live-red.svg)](https://content-gen-automator--daryllrebeiro07.replit.app)

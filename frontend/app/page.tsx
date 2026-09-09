@@ -75,6 +75,8 @@ function statusBadgeClass(status: string): string {
     case "PUBLISH_FAILED":
     case "FAILED":
       return "badge badge-error";
+    case "UNPUBLISHED":
+      return "badge badge-neutral";
     default:
       return "badge";
   }

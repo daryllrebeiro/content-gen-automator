@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
@@ -265,7 +266,28 @@ class YouTubeUploadJobResponse(BaseModel):
     error: str = ""
 
 
+class MetadataValidationRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=5000)
+    tags: list[str] = Field(default_factory=list)
+    thumbnail_url: str | None = None
+    thumbnail_path: str | None = None
+
+
 class MetadataValidationResponse(BaseModel):
     valid: bool
     errors: list[str]
-    warnings: list[str]
+    warnings: list[str] = Field(default_factory=list)
+
+
+class UnpublishRequest(BaseModel):
+    actor: str = Field(min_length=1, max_length=200)
+    reason: str = Field(default="User initiated rollback", max_length=500)
+
+
+class UnpublishResponse(BaseModel):
+    project_id: UUID
+    status: str
+    message: str
+    unpublished_at: datetime
+

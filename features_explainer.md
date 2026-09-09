@@ -322,17 +322,20 @@ Enterprise brands cannot risk automated agents publishing content that violates 
 ---
 
 ### 4.2 Automated Testing & Verification Suite
-* **95 Unit & Contract Tests Passing:** Located in `backend/tests/` covering:
-  * Partner integrations & FinOps ceilings (`test_partner_integrations.py`)
-  * Official Google Cloud ADK agent hierarchy (`test_adk_agents.py`)
-  * Durable memory persistence across processes (`test_memory_persistence.py`)
-  * Localization & subtitle cue tracks (`test_localization_end_to_end.py`)
-  * FFmpeg watermark compositing & multi-format export (`test_ffmpeg_compositing.py`)
-  * Batch production runner & YouTube Analytics feedback loop (`test_phase10_depth.py`)
-  * Publishing gates & manifest audits (`test_publishing_gates.py`)
-  * Production callbacks & idempotency (`test_production.py`)
-  * Fact checking & reliability (`test_evidence.py`, `test_provider_reliability.py`)
-* **End-to-End Orchestration Script:** [`scripts/e2e_video_test.py`](file:///c:/Users/Lenovo%20Laptop/dev/content-gen-automator/scripts/e2e_video_test.py) runs the entire multi-partner lifecycle in under 2 seconds.
+* **181 Unit, Integration & Security Regression Tests Passing:** Located in `backend/tests/` across 33 test suites covering:
+  * **5 Rounds of Adversarial Security & Invariant Hardening:** `test_security_regressions.py`, `test_offensive_hardening.py`, `test_round5_fixes.py`, `test_round2_findings.py` (SEC-01..10, OFF-01..08, homoglyph evasions, timing side-channels, OCC split-brain prevention).
+  * **BYOK & FinOps Controls:** `test_byok.py` (zero key leakage, concurrency bounds, sliding-window rate limiting, token budget ceilings).
+  * **Multi-Platform Target Selection:** `test_multi_platform_selection.py` (YouTube Shorts, TikTok, Instagram Reels aspect ratios, pacing, and packaging).
+  * **Video Provider Catalog & Adapters:** `test_video_provider_catalog.py` (Runway, Kling, Luma, deterministic mock provider).
+  * **Model Tier Routing:** `test_model_tier_routing.py` (fast Gemini Flash vs quality Gemini Pro routing).
+  * **Modular Publish Adapters & YouTube Jobs:** `test_modular_publish_adapters.py`, `test_youtube_upload_jobs.py` (OAuth2 resumable uploads, manual export bundles).
+  * **Studio Presets Engine:** `test_studio_presets.py` (Mythic Odyssey, Hyper Cyber, Noir Detective presets and deep-diff domain validation).
+  * **Partner Integrations & FinOps Ceilings:** `test_partner_integrations.py` (Grafana OTLP, Parallel Search, ClickHouse, IBM watsonx).
+  * **Google Cloud ADK Agent Architecture:** `test_adk_agents.py` (7 LlmAgent subclasses, typed contracts).
+  * **Memory Persistence & State Machine:** `test_memory_persistence.py`, `test_project.py`, `test_modular_pipeline.py`.
+  * **8-Gate Publishing Pipeline:** `test_publishing_gates.py`, `test_final_review.py`, `test_evidence.py`.
+  * **FFmpeg Compositing & End-to-End Execution:** `test_ffmpeg_compositing.py`, `test_e2e_generator_script.py`.
+* **End-to-End Automated Generators:** [`scripts/e2e_video_test.py`](file:///c:/Users/Lenovo%20Laptop/dev/content-gen-automator/scripts/e2e_video_test.py) and [`scripts/generate_30s_video.py`](file:///c:/Users/Lenovo%20Laptop/dev/content-gen-automator/scripts/generate_30s_video.py) execute complete multi-scene generation and preflight verification in under 3 seconds.
 
 ---
 

@@ -42,8 +42,11 @@ from app.schemas.projects import (
     ProductionJobResponse,
     YouTubeUploadJobResponse,
     PlatformExportResponse,
+    MetadataValidationRequest,
+    UnpublishRequest,
+    UnpublishResponse,
 )
-from app.domain.project import ProjectInput, Platform
+from app.domain.project import ProjectInput, Platform, ProjectStatus
 from app.domain.integration import (
     ClipReviewEvent,
     FinalReviewEvent,
@@ -1701,6 +1704,77 @@ def integration_validate_metadata(project_id: UUID) -> MetadataValidationRespons
     publishing_package = export_service.publishing_package(project)
     report = youtube_metadata_validator.validate(publishing_package)
     return MetadataValidationResponse(valid=report.valid, errors=report.errors, warnings=report.warnings)
+
+
+@router.post(
+    "/api/integrations/publish/metadata/check",
+    response_model=MetadataValidationResponse,
+    tags=["publishing"],
+    dependencies=[Depends(require_integration_auth)],
+)
+def integration_check_custom_metadata(
+    request: MetadataValidationRequest,
+) -> MetadataValidationResponse:
+    from app.services.youtube_publish_service import YouTubePublishService
+    valid, errors, warnings = YouTubePublishService.validate_metadata(
+        title=request.title,
+        description=request.description,
+        tags=request.tags,
+        thumbnail_url=request.thumbnail_url,
+        thumbnail_path=request.thumbnail_path,
+    )
+    return MetadataValidationResponse(valid=valid, errors=errors, warnings=warnings)
+
+
+@router.post(
+    "/api/integrations/projects/{project_id}/publish/unpublish",
+    response_model=UnpublishResponse,
+    tags=["publishing"],
+    dependencies=[Depends(require_integration_auth)],
+)
+def integration_unpublish_project(
+    project_id: UUID,
+    request: UnpublishRequest,
+    request_id: str | None = Header(default=None, alias="X-Request-ID"),
+) -> UnpublishResponse:
+    try:
+        project = project_service.repository.get(project_id)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Project not found") from exc
+
+    if project.status not in {ProjectStatus.PUBLISHED, ProjectStatus.PUBLISHING_PENDING, ProjectStatus.COMPLETED}:
+        raise HTTPException(status_code=400, detail=f"Cannot unpublish project in state {project.status.value}")
+
+    repo = project_service.repository
+    youtube_job = None
+    if hasattr(repo, "get_youtube_upload_job_for_project"):
+        youtube_job = repo.get_youtube_upload_job_for_project(str(project_id))
+    elif hasattr(repo, "youtube_upload_jobs"):
+        youtube_job = next((j for j in repo.youtube_upload_jobs.values() if j.project_id == str(project_id)), None)
+
+    if youtube_job and youtube_job.youtube_video_id:
+        from app.services.youtube_publish_service import YouTubePublishService
+        try:
+            YouTubePublishService().unpublish_video(youtube_job.youtube_video_id)
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"External YouTube unpublish failed: {e}")
+
+    project.status = ProjectStatus.UNPUBLISHED
+    repo.save(project)
+
+    project_service._audit(
+        "project.unpublished",
+        str(project_id),
+        request_id,
+        {"actor": request.actor, "reason": request.reason},
+    )
+
+    return UnpublishResponse(
+        project_id=project_id,
+        status="UNPUBLISHED",
+        message=f"Project {project_id} successfully rolled back and unpublished by {request.actor}.",
+        unpublished_at=datetime.now(timezone.utc),
+    )
 
 
 # ---------------------------------------------------------------------------
