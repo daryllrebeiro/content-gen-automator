@@ -1,3 +1,4 @@
+import os
 from typing import Dict, Any, List
 from google.adk.agents import LlmAgent
 from app.agents.tools.publishing_tools import check_publishing_gates_tool
@@ -24,7 +25,7 @@ class PublishingAgent(LlmAgent):
 
 publishing_agent = PublishingAgent(
     name="publishing_agent",
-    model="gemini-2.5-flash",
+    model=os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
     instruction="Verify all 7 fail-closed publishing gates and certify compliance before distribution.",
     tools=[check_publishing_gates_tool]
 )

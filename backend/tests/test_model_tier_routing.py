@@ -1,4 +1,4 @@
-from app.services.model_tier_service import ModelTierService
+from app.services.model_tier_service import ModelTierService, DEFAULT_FLASH_MODEL
 from app.agents.screenwriter_agent import screenwriter_agent
 from app.agents.orchestrator_agent import orchestrator_agent
 
@@ -10,12 +10,12 @@ def test_model_tier_service_catalog():
 
     fast = ModelTierService.get_tier_spec("fast_draft")
     assert fast.screenwriter_model == "gemma-2-9b-it"
-    assert fast.cinematographer_model == "gemini-2.5-flash"
-    assert fast.governance_model == "gemini-2.5-flash"
+    assert fast.cinematographer_model == DEFAULT_FLASH_MODEL
+    assert fast.governance_model == DEFAULT_FLASH_MODEL
     assert fast.estimated_cost_per_draft < 0.0005
 
     flagship = ModelTierService.get_tier_spec("flagship")
-    assert flagship.screenwriter_model == "gemini-2.5-flash"
+    assert flagship.screenwriter_model == DEFAULT_FLASH_MODEL
 
 def test_screenwriter_agent_fast_draft_tier():
     facts = ["Hydrothermal vents support chemosynthesis in the deep ocean."]
@@ -44,7 +44,7 @@ def test_screenwriter_agent_flagship_tier():
         model_tier="flagship"
     )
     assert result["agent"] == "ScreenwriterAgent"
-    assert result["model"] == "gemini-2.5-flash"
+    assert result["model"] == DEFAULT_FLASH_MODEL
     assert result["model_tier"] == "flagship"
     assert result["estimated_cost_usd"] == 0.0010
     assert result["estimated_latency_ms"] == 2400.0
@@ -75,9 +75,9 @@ def test_screenwriter_agent_construction_and_cinematographer_governance_invarian
 
     # 2. Flagship construction
     flagship_agent = create_screenwriter_agent("flagship")
-    assert flagship_agent.model == "gemini-2.5-flash"
+    assert flagship_agent.model == DEFAULT_FLASH_MODEL
 
     # 3. Cinematographer and Governance Specialist models are completely unaffected by tier selection
-    assert cinematographer_agent.model == "gemini-2.5-flash"
-    assert governance_agent.model == "gemini-2.5-flash"
+    assert cinematographer_agent.model == DEFAULT_FLASH_MODEL
+    assert governance_agent.model == DEFAULT_FLASH_MODEL
 

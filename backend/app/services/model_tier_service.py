@@ -1,5 +1,8 @@
+import os
 from dataclasses import dataclass
 from typing import List, Dict, Any
+
+DEFAULT_FLASH_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 
 @dataclass
 class ModelTierSpec:
@@ -23,18 +26,18 @@ class ModelTierService:
             id="fast_draft",
             display_name="⚡ Fast Draft (Cost-Optimized Gemma / Flash Tier)",
             screenwriter_model="gemma-2-9b-it",
-            cinematographer_model="gemini-2.5-flash",
-            governance_model="gemini-2.5-flash",
+            cinematographer_model=DEFAULT_FLASH_MODEL,
+            governance_model=DEFAULT_FLASH_MODEL,
             estimated_cost_per_draft=0.0002,
             estimated_latency_ms=950.0,
             description="Ultra-fast, low-cost model for rapid screenwriter drafts. Cinematography and IBM governance remain on flagship tier."
         ),
         "flagship": ModelTierSpec(
             id="flagship",
-            display_name="👑 Flagship (Gemini 2.5 Flash Reasoning)",
-            screenwriter_model="gemini-2.5-flash",
-            cinematographer_model="gemini-2.5-flash",
-            governance_model="gemini-2.5-flash",
+            display_name="👑 Flagship (Gemini 3.8 Flash Reasoning)",
+            screenwriter_model=DEFAULT_FLASH_MODEL,
+            cinematographer_model=DEFAULT_FLASH_MODEL,
+            governance_model=DEFAULT_FLASH_MODEL,
             estimated_cost_per_draft=0.0010,
             estimated_latency_ms=2400.0,
             description="Full-depth reasoning across all agents: Screenwriter, Cinematographer, and Governance Specialist."

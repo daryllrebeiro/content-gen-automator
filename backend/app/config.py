@@ -49,7 +49,7 @@ class Settings:
             project_repository=repository,
             llm_provider=provider,
             gemini_api_key=gemini_key,
-            gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+            gemini_model=os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
             cors_origins=origins,
             integration_service_token=integration_token,
             export_signing_secret=signing_secret,

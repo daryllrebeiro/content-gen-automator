@@ -109,7 +109,7 @@ def get_partner_ecosystem_status():
         "hackathon": "Agentic Cinema: The Blockbuster Hackathon",
         "primary_track": "IBM watsonx (Governance)",
         "google_cloud_gemini": {
-            "model": "gemini-2.5-flash",
+            "model": os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
             "framework": "Google Cloud Agent Development Kit (ADK)",
             "status": "ready"
         },

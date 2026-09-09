@@ -1,3 +1,4 @@
+import os
 from typing import Dict, Any, List
 from google.adk.agents import LlmAgent
 from app.agents.tools.research_tools import parallel_search_tool, vertex_search_style_tool
@@ -27,7 +28,7 @@ class ResearchAgent(LlmAgent):
 
 research_agent = ResearchAgent(
     name="research_agent",
-    model="gemini-2.5-flash",
+    model=os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
     instruction="Conduct agentic web research via Parallel Search and retrieve studio style guidelines.",
     tools=[parallel_search_tool, vertex_search_style_tool]
 )

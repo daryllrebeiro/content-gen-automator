@@ -1,3 +1,4 @@
+import os
 from typing import Dict, Any, List
 from google.adk.agents import LlmAgent
 from app.agents.tools.governance_tools import watsonx_audit_prompt_tool, watsonx_audit_narration_tool
@@ -31,7 +32,7 @@ class GovernanceAgent(LlmAgent):
 
 governance_agent = GovernanceAgent(
     name="governance_agent",
-    model="gemini-2.5-flash",
+    model=os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
     instruction="Audit cinematic visual prompts and narration scripts for enterprise compliance using IBM watsonx guardrails.",
     tools=[watsonx_audit_prompt_tool, watsonx_audit_narration_tool]
 )

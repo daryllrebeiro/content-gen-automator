@@ -1,3 +1,4 @@
+import os
 from typing import Dict, Any, List
 from google.adk.agents import LlmAgent
 from app.agents.tools.screenwriting_tools import draft_narration_tool
@@ -64,7 +65,7 @@ def create_screenwriter_agent(model_tier: str = "flagship") -> ScreenwriterAgent
 
 screenwriter_agent = ScreenwriterAgent(
     name="screenwriter_agent",
-    model="gemini-2.5-flash",
+    model=os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
     instruction="Draft high-retention cinematic voiceover narration within strict duration word budgets.",
     tools=[draft_narration_tool]
 )

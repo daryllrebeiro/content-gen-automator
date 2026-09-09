@@ -1,3 +1,4 @@
+import os
 from typing import Dict, Any, List, Optional
 from google.adk.agents import LlmAgent
 from app.agents.tools.cinematography_tools import synthesize_visual_prompt_tool
@@ -45,7 +46,7 @@ class CinematographerAgent(LlmAgent):
 
 cinematographer_agent = CinematographerAgent(
     name="cinematographer_agent",
-    model="gemini-2.5-flash",
+    model=os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
     instruction="Synthesize visual camera, lighting, and movement directives for video diffusion pipelines.",
     tools=[synthesize_visual_prompt_tool]
 )

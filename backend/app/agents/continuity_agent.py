@@ -1,3 +1,4 @@
+import os
 from typing import Dict, Any, List, Optional
 from google.adk.agents import LlmAgent
 from app.adapters.agent_engine_memory import agent_memory_bank
@@ -33,7 +34,7 @@ class ContinuityAgent(LlmAgent):
 
 continuity_agent = ContinuityAgent(
     name="continuity_agent",
-    model="gemini-2.5-flash",
+    model=os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
     instruction="Maintain cross-scene visual seeds and character appearance bibles using Memory Bank tools.",
     tools=[register_seed_tool, fetch_character_bible_tool, fetch_continuity_lock_tool]
 )

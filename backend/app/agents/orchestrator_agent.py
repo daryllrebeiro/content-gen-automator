@@ -1,3 +1,4 @@
+import os
 from typing import Dict, Any, List, Optional
 from google.adk.agents import LlmAgent
 from app.agents.research_agent import research_agent
@@ -103,7 +104,7 @@ class OrchestratorAgent(LlmAgent):
 
 orchestrator_agent = OrchestratorAgent(
     name="orchestrator_agent",
-    model="gemini-2.5-flash",
+    model=os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
     instruction="Orchestrate the entire cinematic multi-agent pipeline via Agent2Agent (A2A) delegation tools.",
     tools=[
         delegate_research_task,
