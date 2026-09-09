@@ -83,10 +83,15 @@ def test_verify_gemini_key_mock_and_validation():
     assert verify_gemini_key("")["valid"] is False
     assert verify_gemini_key("   ")["valid"] is False
     
-    # Pre-validation: rejects non-AIzaSy format immediately without external network calls
+    # Pre-validation: rejects non-AIza / non-AQ format immediately without external network calls
     invalid_format = verify_gemini_key("not_a_real_key_123")
     assert invalid_format["valid"] is False
     assert "Invalid Google Gemini API key format" in invalid_format["message"]
+
+    # Pre-validation: accepts modern Google AI Studio / Cloud AQ. format keys
+    # (Pre-validation passes; external call fails safely without crashing or leaking)
+    aq_res = verify_gemini_key("AQ.Ab8RN6J_cn4ampyCandidateTestKey123")
+    assert "Invalid Google Gemini API key format" not in aq_res.get("message", "")
     
     # Mock key bypass for testing
     mock_res = verify_gemini_key("mock_test_key")

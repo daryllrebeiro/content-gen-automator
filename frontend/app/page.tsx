@@ -945,7 +945,7 @@ export default function HomePage() {
                         handleSaveLandingKey();
                       }
                     }}
-                    placeholder="AIzaSy... (Paste Google Gemini API Key)"
+                    placeholder="AIza... or AQ.... (Paste Google Gemini API Key)"
                     style={{
                       width: "100%",
                       margin: 0,
@@ -1046,7 +1046,7 @@ export default function HomePage() {
                   Get a free Gemini API key from Google AI Studio ↗
                 </a>
                 <span style={{ fontSize: "11px", color: "var(--muted)" }}>
-                  Key format: AIzaSy... (39 characters)
+                  Key format: AIza... or AQ....
                 </span>
               </div>
             </div>

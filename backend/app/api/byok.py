@@ -223,12 +223,18 @@ def verify_gemini_key(api_key: str) -> Dict[str, Any]:
     if clean_key.startswith("mock_"):
         return {"valid": True, "provider": "gemini", "model": "mock", "message": "Mock test key verified"}
 
-    # Format verification: Gemini API keys match AIzaSy followed by 33 URL-safe characters
-    if not re.match(r"^AIzaSy[0-9A-Za-z_-]{33}$", clean_key):
+    # Format verification: Accepts both:
+    # 1. Legacy Google standard keys (starting with 'AIza', e.g. AIzaSy... 39 chars)
+    # 2. Modern Google AI Studio / Google Cloud Auth keys (starting with 'AQ.')
+    is_valid_format = bool(
+        re.match(r"^AIza[0-9A-Za-z_-]{30,60}$", clean_key) or
+        re.match(r"^AQ\.[0-9A-Za-z_.-]{10,250}$", clean_key)
+    )
+    if not is_valid_format:
         return {
             "valid": False,
             "provider": "gemini",
-            "message": "Invalid Google Gemini API key format. Expected 39-character string starting with 'AIzaSy'."
+            "message": "Invalid Google Gemini API key format. Expected a valid key starting with 'AIza' or 'AQ.'."
         }
 
     try:

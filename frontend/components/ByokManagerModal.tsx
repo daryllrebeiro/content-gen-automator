@@ -196,7 +196,7 @@ export default function ByokManagerModal({ isOpen, onClose, onKeysUpdated }: Byo
                 type={showKey.gemini ? "text" : "password"}
                 value={keys.gemini || ""}
                 onChange={(e) => handleKeyChange("gemini", e.target.value)}
-                placeholder="AIzaSy..."
+                placeholder="AIzaSy... or AQ...."
                 style={{
                   flex: 1,
                   background: "rgba(0, 0, 0, 0.4)",
