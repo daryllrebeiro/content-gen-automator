@@ -68,12 +68,14 @@ class RealVideoGenService:
         if key and not key.startswith("mock_"):
             try:
                 from google import genai
+                from app.services.prompt_pipeline import build_master_system_prompt
                 client = genai.Client(api_key=key)
+                formatted_input = f"{build_master_system_prompt(visual_prompt)}\n\nSCENE PROMPT AND SCRIPT:\n{visual_prompt}"
                 # 1. Attempt Interactions API for Gemini Omni 1.1 Flash
                 if hasattr(client, "interactions"):
                     response = client.interactions.create(
                         model=os.getenv("GEMINI_OMNI_MODEL", "gemini-omni-1.1-flash"),
-                        input=[{"type": "text", "text": visual_prompt}],
+                        input=[{"type": "text", "text": formatted_input}],
                         response_format={"type": "video", "delivery": "bytes"},
                     )
                     raw_bytes = getattr(response, "bytes", None) or getattr(response, "video_bytes", None)

@@ -37,6 +37,32 @@ def _generate_structured(provider: LLMProvider, *, system_prompt: str, user_prom
             current_prompt = f"{user_prompt}\n\nREPAIR: Return valid JSON with every required field populated. Do not add commentary."
 
 
+def build_master_system_prompt(topic: str) -> str:
+    return (
+        f"Lets create a vertical video on {topic}\n"
+        "Make sure to not include too much narration that wont fit in 30 seconds\n\n"
+        "Make sure to include the script for a given prompt in one go towards the end of the prompt in a separate section\n\n"
+        "Individual scenes within a single prompt should not have their own narration or scripts, that cases omni to create overlapping and wrong narration\n\n"
+        "For individual prompts, the script should fit under 9 seconds\n\n"
+        "Have great visuals for the threads and everything\n\n"
+        "Making for a spectacle\n\n"
+        "Make sure the audio does not abruptly break anywhere in between\n\n"
+        "Max should be 3 prompts (so a 30 second short)\n\n"
+        "Dont take name of any prominent characters in generating the video to create the llikeness as its violating google pro policies in omni flash Make it such that we dont vilate any generation policies It should be 9:16 Create it like a story from the very beginning small to now worldwide chain All of it animated make it in a videos format so 9:16  Make sure its cinematic but has animated people and not real looking ones It should be a complete animated video\n\n"
+        "All clips should have same animation type and should be completely anmated, no real looking humans or anything\n\n"
+        "All clips should have EXACT SAME narration voice in each scene and each video\n\n"
+        "Create similar narration included detailed prompts for this\n\n"
+        "Also remember this, when omni flash generates audio and video of 10 seconds it only generates 9 and a half seconds worth, so the audio is often time schopped off at the end\n\n"
+        "So make sure to tell the prompt to keep the **audio only** **till 9th second** and the video length should be 10 seconds, so we wont have that choppy abrupt disruption\n\n"
+        "We will create them 1 by 1 create first prompt with script narration captions everything and then ask me for next  The prompts should be same as how we have been creating so far for videos Once a prompt is done ask me for next prompt\n\n"
+        "Since Omni flash can create 10 seconds video\n\n"
+        "Each prompt should be for 10 seconds of the video, remember audio only till 9 seconds\n\n"
+        "Make sure all prompts use the same voice in video generated so the video feels consistent\n\n"
+        "The script (narration) should be accurate\n\n"
+        "Make sure to remmeber all the non video-topic agnostic instrctuions for creating vertical videos"
+    )
+
+
 class StoryArchitect:
     def __init__(self, provider: LLMProvider | None = None) -> None:
         self.provider = provider
@@ -49,8 +75,8 @@ class StoryArchitect:
         result, _ = _generate_structured(
             self.provider,
             system_prompt=(
-                "You are a story architect for animated YouTube Shorts. "
-                "Use only the supplied topic and facts. Plan exactly the requested number of scenes."
+                "You are a story architect for animated YouTube Shorts.\n\n"
+                + build_master_system_prompt(project.input.topic)
             ),
             user_prompt=(
                 f"Topic: {project.input.topic}\nFacts: {project.input.facts}\n"
@@ -90,7 +116,8 @@ class NarrationWriter:
                 self.provider,
                 system_prompt=(
                     "Write concise, accurate narration for one animated YouTube Short scene. "
-                    "Use no more than 20 words and end with a complete sentence."
+                    "Use no more than 16 words and end with a complete sentence ending in a period.\n\n"
+                    + build_master_system_prompt(project.input.topic)
                 ),
                 user_prompt=(
                     f"Language: {project.input.language}\nTone: {project.input.tone}\n"
@@ -146,7 +173,8 @@ class VisualDirector:
                 system_prompt=(
                     "You are a visual director. Create only original, clearly animated, "
                     "non-photorealistic visuals. Preserve the supplied continuity lock. "
-                    "Provide exactly 4 timed beats covering: 0–3 seconds, 3–6 seconds, 6–9 seconds, and 9–10 seconds."
+                    "Provide exactly 4 timed beats covering: 0–3 seconds, 3–6 seconds, 6–9 seconds, and 9–10 seconds.\n\n"
+                    + build_master_system_prompt(context.project.input.topic)
                 ),
                 user_prompt=(
                     f"Animation style: {context.project.continuity.animation_style}\n"
