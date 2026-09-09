@@ -20,26 +20,34 @@ class GeminiProvider:
 
         self._types = types
         self.client = genai.Client(api_key=api_key or os.environ.get("GEMINI_API_KEY"))
-        self.model = model or os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
+        env_model = os.environ.get("GEMINI_MODEL")
+        if model in ("gemini-3.8-flash", "gemini-3.7-flash"):
+            self.model = model
+        elif env_model in ("gemini-3.8-flash", "gemini-3.7-flash"):
+            self.model = env_model
+        else:
+            self.model = "gemini-3.8-flash"
 
     def _call_with_fallback(self, func: Callable[[str], Any]) -> Any:
+        # Strictly support ONLY gemini-3.8-flash and gemini-3.7-flash
+        allowed_models = ["gemini-3.8-flash", "gemini-3.7-flash"]
         models_to_try = [self.model]
-        for alt in ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-2.0-flash"]:
+        for alt in allowed_models:
             if alt not in models_to_try:
                 models_to_try.append(alt)
 
         last_error = None
         for m in models_to_try:
-            for attempt in range(1, 3):
+            for attempt in range(1, 4):
                 try:
                     return func(m)
                 except Exception as exc:
                     err_str = str(exc)
                     last_error = exc
-                    if any(k in err_str for k in ("503", "UNAVAILABLE", "high demand", "RESOURCE_EXHAUSTED", "429")):
-                        time.sleep(1.0 * attempt)
+                    if any(k in err_str for k in ("503", "UNAVAILABLE", "high demand", "RESOURCE_EXHAUSTED", "429", "Overloaded")):
+                        time.sleep(1.5 * attempt)
                         continue
-                    raise exc
+                    break
         if last_error:
             raise last_error
         raise RuntimeError("Gemini call failed with no error returned.")
