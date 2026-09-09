@@ -482,7 +482,13 @@ def create_project(
     except ValueError as exc:
         if "API key" in str(exc):
             _handle_provider_failure(exc)
+        logger.exception("Validation error in create_project: %s", exc)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except HTTPException:
         raise
+    except Exception as exc:
+        logger.exception("Unexpected error in create_project: %s", exc)
+        _handle_provider_failure(exc)
 
     # Partner Integrations: Grafana Observability + ClickHouse Analytics
     telemetry.record_project_created(request.topic)
@@ -626,7 +632,13 @@ def generate_first_prompt(
     except ValueError as exc:
         if "API key" in str(exc):
             _handle_provider_failure(exc)
+        logger.exception("Validation error in generate_first_prompt: %s", exc)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except HTTPException:
         raise
+    except Exception as exc:
+        logger.exception("Unexpected error in generate_first_prompt: %s", exc)
+        _handle_provider_failure(exc)
 
 
 @router.post(
@@ -759,7 +771,13 @@ def regenerate_prompt(
     except ValueError as exc:
         if "API key" in str(exc):
             _handle_provider_failure(exc)
+        logger.exception("Validation error in regenerate_prompt: %s", exc)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except HTTPException:
         raise
+    except Exception as exc:
+        logger.exception("Unexpected error in regenerate_prompt: %s", exc)
+        _handle_provider_failure(exc)
 
 
 @router.get(
