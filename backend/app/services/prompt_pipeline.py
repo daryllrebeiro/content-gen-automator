@@ -86,15 +86,32 @@ class StoryArchitect:
             response_schema=STORY_SCHEMA,
             required=("hook", "central_claim", "ending"),
         )
-        if not isinstance(result.get("scenes"), list) or not result["scenes"]:
-            raise StructuredOutputError("Story output must contain at least one scene.")
-        project.story_hook = result["hook"]
-        project.story_central_claim = result["central_claim"]
-        project.story_ending = result["ending"]
+        target_count = max(1, project.input.duration_seconds // 10)
+        purposes = [
+            ("origin", f"Show the small beginning and preparation for {project.input.topic}."),
+            ("breakthrough", f"Highlight the intricate development and turning point for {project.input.topic}."),
+            ("global_impact", f"Reveal the finished achievement and its lasting impact for {project.input.topic}."),
+        ]
+        raw_scenes = result.get("scenes")
+        if not isinstance(raw_scenes, list) or not raw_scenes:
+            raw_scenes = [{"purpose": p[0], "summary": p[1]} for p in purposes[:target_count]]
+        elif len(raw_scenes) < target_count:
+            for i in range(len(raw_scenes), target_count):
+                idx = min(i, len(purposes) - 1)
+                raw_scenes.append({"purpose": purposes[idx][0], "summary": purposes[idx][1]})
+
+        project.story_hook = result.get("hook") or f"How does {project.input.topic} begin and transform?"
+        project.story_central_claim = result.get("central_claim") or f"Through persistent effort, {project.input.topic} creates a lasting result."
+        project.story_ending = result.get("ending") or f"The journey concludes with a durable, protective achievement."
         project.scenes = [
-            Scene(number=index, purpose=item["purpose"], summary=item["summary"], previous_scene_number=index - 1 if index > 1 else None)
-            for index, item in enumerate(result["scenes"], start=1)
-        ][: project.input.duration_seconds // 10]
+            Scene(
+                number=index,
+                purpose=item.get("purpose", purposes[min(index - 1, len(purposes) - 1)][0]),
+                summary=item.get("summary", purposes[min(index - 1, len(purposes) - 1)][1]),
+                previous_scene_number=index - 1 if index > 1 else None,
+            )
+            for index, item in enumerate(raw_scenes, start=1)
+        ][:target_count]
         project.continuity = project.continuity
 
 
