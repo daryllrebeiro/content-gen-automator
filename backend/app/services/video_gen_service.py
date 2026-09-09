@@ -68,19 +68,38 @@ class RealVideoGenService:
         if key and not key.startswith("mock_"):
             try:
                 from google import genai
+                from google.genai import types
                 from app.services.prompt_pipeline import build_master_system_prompt
                 client = genai.Client(api_key=key)
                 formatted_input = f"{build_master_system_prompt(visual_prompt)}\n\nSCENE PROMPT AND SCRIPT:\n{visual_prompt}"
                 model_name = os.getenv("GEMINI_OMNI_MODEL", "gemini-omni-1.1-flash")
 
-                # Gemini Omni 1.1 Flash via Interactions API
+                # 1. Primary: Official client.models.generate_videos for Gemini Omni 1.1 Flash
+                if hasattr(client, "models") and hasattr(client.models, "generate_videos"):
+                    try:
+                        op = client.models.generate_videos(
+                            model=model_name,
+                            prompt=formatted_input,
+                            config=types.GenerateVideosConfig(aspect_ratio="9:16", duration_seconds=10),
+                        )
+                        if hasattr(op, "result"):
+                            res = op.result
+                            if hasattr(res, "generated_videos") and res.generated_videos:
+                                vid = res.generated_videos[0]
+                                if hasattr(vid, "video") and hasattr(vid.video, "video_bytes"):
+                                    with open(file_path, "wb") as f:
+                                        f.write(vid.video.video_bytes)
+                                    return file_path
+                    except Exception as gen_err:
+                        print(f"[Gemini Omni Video Gen] models.generate_videos notice: {gen_err}")
+
+                # Interactions API for Gemini Omni 1.1 Flash
                 if hasattr(client, "interactions"):
                     try:
-                        # 1. Official URI delivery format
                         interaction = client.interactions.create(
                             model=model_name,
                             input=[{"type": "text", "text": formatted_input}],
-                            response_format={"type": "video", "delivery": "uri", "aspect_ratio": "9:16", "duration": 10},
+                            response_modalities=["video"],
                         )
                         output_video = getattr(interaction, "output_video", None)
                         if output_video and getattr(output_video, "uri", None):
@@ -89,18 +108,13 @@ class RealVideoGenService:
                                 with open(file_path, "wb") as f:
                                     f.write(video_bytes)
                                 return file_path
-                    except Exception as uri_err:
-                        # 2. Fallback to bytes delivery
-                        response = client.interactions.create(
-                            model=model_name,
-                            input=[{"type": "text", "text": formatted_input}],
-                            response_format={"type": "video", "delivery": "bytes", "aspect_ratio": "9:16", "duration": 10},
-                        )
-                        raw_bytes = getattr(response, "bytes", None) or getattr(response, "video_bytes", None)
+                        raw_bytes = getattr(interaction, "bytes", None) or getattr(interaction, "video_bytes", None)
                         if raw_bytes:
                             with open(file_path, "wb") as f:
                                 f.write(raw_bytes)
                             return file_path
+                    except Exception as int_err:
+                        print(f"[Gemini Omni Video Gen] interactions notice: {int_err}")
             except Exception as e:
                 # Log error and proceed to ensure pipeline completion without crashing
                 print(f"[Gemini Omni Video Gen] Warning: Live Omni Flash 1.1 render probe: {e}. Writing scene video asset.")
